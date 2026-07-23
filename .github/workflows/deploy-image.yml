@@ -40,3 +40,16 @@ jobs:
             ghcr.io/${{ github.repository }}:rc21-patched-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Export image tarball
+        run: |
+          docker pull ghcr.io/${{ github.repository }}:rc21-patched
+          docker save ghcr.io/${{ github.repository }}:rc21-patched | gzip > new-api-rc21-patched.tar.gz
+          ls -lh new-api-rc21-patched.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-api-rc21-patched
+          path: new-api-rc21-patched.tar.gz
+          retention-days: 3
