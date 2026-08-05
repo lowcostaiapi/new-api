@@ -245,6 +245,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
+		// 重试已经用尽（或这个错不允许重试），错误就要回到用户手里了：实时上报给看板播报
+		service.NotifyFinalFailure(c, relayInfo, newAPIError)
 	}
 }
 
