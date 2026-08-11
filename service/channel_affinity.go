@@ -623,6 +623,17 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 	return 0, false
 }
 
+// ChannelAffinityPinnedFirstAttempt reports whether this request's first
+// attempt was routed by the affinity cache (MarkChannelAffinityUsed ran),
+// i.e. it consumed no priority tier in the retry ladder.
+func ChannelAffinityPinnedFirstAttempt(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	_, ok := c.Get(ginKeyChannelAffinitySkipRetry)
+	return ok
+}
+
 func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	if c == nil {
 		return false

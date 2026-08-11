@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -231,8 +232,29 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
+		// 每次失败尝试都记入重试轨迹，随 admin_info 落日志：重试成功后
+		// 首跳错误不再有独立的失败日志，看板要靠它归因渠道硬错。
+		trailAny, _ := c.Get("retry_errors")
+		trail, _ := trailAny.([]map[string]interface{})
+		msg := newAPIError.Error()
+		if runes := []rune(msg); len(runes) > 200 {
+			msg = string(runes[:200])
+		}
+		trail = append(trail, map[string]interface{}{
+			"channel_id":  channel.Id,
+			"status_code": newAPIError.StatusCode,
+			"message":     msg,
+		})
+		c.Set("retry_errors", trail)
+
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
+		}
+		if retryParam.GetRetry() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
+			// 亲和粘滞的首跳直接用了粘住的渠道，没有消耗优先级档：不重置的话
+			// 最高档渠道永远不在重试候选里，粘在低档渠道的会话只能一路向更
+			// 低档漂。重置后从第一档选起，已试过的渠道由 getChannel 跳过。
+			retryParam.ResetRetryNextTry()
 		}
 	}
 
@@ -307,6 +329,23 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}, nil
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	if err == nil && channel != nil && service.ChannelAffinityPinnedFirstAttempt(c) {
+		// 亲和首跳没有消耗优先级档（见 relayRequest 里的 ResetRetryNextTry），
+		// 重试从第一档重新数起，因此可能再次选中已失败过的渠道：逐档下移直到
+		// 出现没试过的渠道；候选耗尽时沿用最后一次选择（与旧的钳位行为一致）。
+		used := c.GetStringSlice("use_channel")
+		for range used {
+			if !slices.Contains(used, fmt.Sprintf("%d", channel.Id)) {
+				break
+			}
+			retryParam.IncreaseRetry()
+			nextChannel, nextGroup, nextErr := service.CacheGetRandomSatisfiedChannel(retryParam)
+			if nextErr != nil || nextChannel == nil {
+				break
+			}
+			channel, selectGroup = nextChannel, nextGroup
+		}
+	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
