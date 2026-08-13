@@ -73,3 +73,48 @@ func TestShouldRetryDoesNotEscapeSpecificChannel(t *testing.T) {
 	require.False(t, shouldRetry(ctx, err503, 3))
 	require.False(t, service.HasEscapedChannelAffinityFailure(ctx))
 }
+
+func TestShouldRetryConfigured524UsesStandardRetryBudget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	err524 := types.NewOpenAIError(
+		errors.New("upstream proxy timeout"),
+		types.ErrorCodeBadResponseStatusCode,
+		524,
+	)
+
+	// 524 follows the same configured status-code path as 502/503: every
+	// remaining RetryTimes slot is eligible, with no 524-specific allowance.
+	require.True(t, shouldRetry(ctx, err524, 4))
+	require.True(t, shouldRetry(ctx, err524, 1))
+	require.False(t, shouldRetry(ctx, err524, 0))
+}
+
+func TestShouldRetryConfigured524StillHonorsSpecificChannel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("specific_channel_id", 30)
+	err524 := types.NewOpenAIError(
+		errors.New("upstream proxy timeout"),
+		types.ErrorCodeBadResponseStatusCode,
+		524,
+	)
+
+	require.False(t, shouldRetry(ctx, err524, 4))
+}
+
+func TestShouldRetryConfiguredStatusCodeRegression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	newStatusError := func(status int) *types.NewAPIError {
+		return types.NewOpenAIError(
+			errors.New(http.StatusText(status)),
+			types.ErrorCodeBadResponseStatusCode,
+			status,
+		)
+	}
+
+	require.True(t, shouldRetry(ctx, newStatusError(http.StatusBadGateway), 1))
+	require.True(t, shouldRetry(ctx, newStatusError(http.StatusServiceUnavailable), 1))
+	require.False(t, shouldRetry(ctx, newStatusError(http.StatusBadRequest), 1))
+}
