@@ -363,6 +363,11 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
 		return false
 	}
+	// 504/524 是超时类错误:换渠道重试有意义,但每次都要等上游超时(约 2 分钟),
+	// 多次重试会拖死用户。护栏:只允许在首次失败后额外重试 1 次(不是首次失败时直接放弃)。
+	if (code == http.StatusGatewayTimeout || code == 524) && retryTimes < common.RetryTimes {
+		return false
+	}
 	return operation_setting.ShouldRetryByStatusCode(code)
 }
 
