@@ -332,10 +332,12 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
+	// A specific channel request is pinned by the caller and must never
+	// escape or enter any retry branch, including channel:* errors.
+	if _, ok := c.Get("specific_channel_id"); ok {
+		return false
+	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
-		if _, ok := c.Get("specific_channel_id"); ok {
-			return false
-		}
 		if service.TryEscapeChannelAffinityFailure(c, openaiErr.StatusCode, retryTimes) {
 			return true
 		}

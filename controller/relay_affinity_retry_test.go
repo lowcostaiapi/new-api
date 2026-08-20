@@ -141,6 +141,19 @@ func TestShouldRetryEscapedChannelErrorTimeoutStillUsesOneRetryGuard(t *testing.
 	}
 }
 
+func TestShouldRetrySpecificChannelNeverRetriesChannelError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("specific_channel_id", 30)
+	errChannel := types.NewOpenAIError(
+		errors.New("channel timeout"),
+		types.ErrorCodeChannelResponseTimeExceeded,
+		503,
+	)
+
+	require.False(t, shouldRetry(ctx, errChannel, 4))
+}
+
 func TestShouldRetryConfigured524StillHonorsSpecificChannel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

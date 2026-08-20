@@ -234,7 +234,13 @@ export function RuleEditorDialog(props: Props) {
       value_regex: values.value_regex.trim(),
       ttl_seconds: Number(values.ttl_seconds || 0),
       skip_retry_on_failure: values.skip_retry_on_failure,
-      failure_escape_max_fallbacks: Math.max(1, Number(values.failure_escape_max_fallbacks || 1)),
+      failure_escape_max_fallbacks: Math.max(
+        1,
+        Number(
+          values.failure_escape_max_fallbacks ||
+            ((values.name || '').trim().toLowerCase() === 'codex cli trace' ? 3 : 1),
+        ),
+      ),
       include_using_group: values.include_using_group,
       include_model_name: values.include_model_name,
       include_rule_name: values.include_rule_name,
