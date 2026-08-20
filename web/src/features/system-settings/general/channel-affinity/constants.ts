@@ -95,7 +95,6 @@ export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
     value_regex: '',
     ttl_seconds: 0,
     skip_retry_on_failure: true,
-    failure_escape_max_fallbacks: 3,
     include_using_group: true,
     include_model_name: false,
     include_rule_name: true,
@@ -111,23 +110,10 @@ export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
     value_regex: '',
     ttl_seconds: 0,
     skip_retry_on_failure: true,
-    failure_escape_max_fallbacks: 1,
     include_using_group: true,
     include_model_name: false,
     include_rule_name: true,
   },
-}
-
-export function getFailureEscapeMaxFallbacks(
-  rule: Pick<AffinityRule, 'name' | 'failure_escape_max_fallbacks'>
-): number {
-  if (
-    rule.failure_escape_max_fallbacks &&
-    rule.failure_escape_max_fallbacks > 0
-  ) {
-    return rule.failure_escape_max_fallbacks
-  }
-  return rule.name.trim().toLowerCase() === 'codex cli trace' ? 3 : 1
 }
 
 export function makeUniqueName(

@@ -42,12 +42,7 @@ import { SettingsPageActionsPortal } from '../../components/settings-page-contex
 import { SettingsSection } from '../../components/settings-section'
 import { useUpdateOption } from '../../hooks/use-update-option'
 import { getCacheStats, clearAllCache, clearRuleCache } from './api'
-import {
-  RULE_TEMPLATES,
-  cloneTemplate,
-  getFailureEscapeMaxFallbacks,
-  makeUniqueName,
-} from './constants'
+import { RULE_TEMPLATES, cloneTemplate, makeUniqueName } from './constants'
 import { RuleEditorDialog } from './rule-editor-dialog'
 import type { AffinityRule, CacheStats, ChannelAffinitySettings } from './types'
 
@@ -590,31 +585,15 @@ export function ChannelAffinitySection(props: Props) {
               {
                 id: 'retry',
                 header: t('Retry'),
-                cell: (rule) => {
-                  if (!rule.skip_retry_on_failure) {
-                    return (
-                      <StatusBadge
-                        label={t('Retry')}
-                        variant='neutral'
-                        copyable={false}
-                      />
-                    )
-                  }
-                  return (
-                    <div className='flex items-center gap-1'>
-                      <StatusBadge
-                        label={t('No Retry')}
-                        variant='danger'
-                        copyable={false}
-                      />
-                      <StatusBadge
-                        label={`×${getFailureEscapeMaxFallbacks(rule)}`}
-                        variant='neutral'
-                        copyable={false}
-                      />
-                    </div>
-                  )
-                },
+                cell: (rule) => (
+                  <StatusBadge
+                    label={
+                      rule.skip_retry_on_failure ? t('No Retry') : t('Retry')
+                    }
+                    variant={rule.skip_retry_on_failure ? 'danger' : 'neutral'}
+                    copyable={false}
+                  />
+                ),
               },
               {
                 id: 'scope',

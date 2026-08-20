@@ -43,7 +43,7 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 
 import { SettingsSwitchField } from '../../components/settings-form-layout'
-import { RULE_TEMPLATES, getFailureEscapeMaxFallbacks } from './constants'
+import { RULE_TEMPLATES } from './constants'
 import type { AffinityRule, KeySource } from './types'
 
 type KeySourceRow = KeySource & {
@@ -79,7 +79,6 @@ interface RuleFormValues {
   value_regex: string
   ttl_seconds: number
   skip_retry_on_failure: boolean
-  failure_escape_max_fallbacks: number
   include_using_group: boolean
   include_model_name: boolean
   include_rule_name: boolean
@@ -129,7 +128,6 @@ export function RuleEditorDialog(props: Props) {
       value_regex: '',
       ttl_seconds: 0,
       skip_retry_on_failure: false,
-      failure_escape_max_fallbacks: 1,
       include_using_group: true,
       include_model_name: false,
       include_rule_name: true,
@@ -146,10 +144,6 @@ export function RuleEditorDialog(props: Props) {
       value_regex: r.value_regex || '',
       ttl_seconds: r.ttl_seconds || 0,
       skip_retry_on_failure: !!r.skip_retry_on_failure,
-      failure_escape_max_fallbacks: getFailureEscapeMaxFallbacks({
-        name: r.name || '',
-        failure_escape_max_fallbacks: r.failure_escape_max_fallbacks,
-      }),
       include_using_group: r.include_using_group ?? true,
       include_model_name: !!r.include_model_name,
       include_rule_name: r.include_rule_name ?? true,
@@ -182,7 +176,6 @@ export function RuleEditorDialog(props: Props) {
         value_regex: '',
         ttl_seconds: 0,
         skip_retry_on_failure: false,
-        failure_escape_max_fallbacks: 1,
         include_using_group: true,
         include_model_name: false,
         include_rule_name: true,
@@ -237,13 +230,6 @@ export function RuleEditorDialog(props: Props) {
       value_regex: values.value_regex.trim(),
       ttl_seconds: Number(values.ttl_seconds || 0),
       skip_retry_on_failure: values.skip_retry_on_failure,
-      failure_escape_max_fallbacks: Math.max(
-        1,
-        Math.trunc(
-          values.failure_escape_max_fallbacks ||
-            getFailureEscapeMaxFallbacks({ name: values.name })
-        )
-      ),
       include_using_group: values.include_using_group,
       include_model_name: values.include_model_name,
       include_rule_name: values.include_rule_name,
@@ -253,8 +239,6 @@ export function RuleEditorDialog(props: Props) {
     props.onSave(rule)
     props.onOpenChange(false)
   }
-
-  const skipRetryOnFailure = form.watch('skip_retry_on_failure')
 
   return (
     <Dialog
@@ -312,33 +296,10 @@ export function RuleEditorDialog(props: Props) {
         </div>
 
         <SettingsSwitchField
-          checked={skipRetryOnFailure}
+          checked={form.watch('skip_retry_on_failure')}
           onCheckedChange={(v) => form.setValue('skip_retry_on_failure', v)}
           label={t('Skip retry on failure')}
         />
-
-        {skipRetryOnFailure && (
-          <div className='grid gap-1.5'>
-            <Label htmlFor='failure-escape-max-fallbacks'>
-              {t('Affinity fallback attempts')}
-            </Label>
-            <Input
-              id='failure-escape-max-fallbacks'
-              type='number'
-              min={1}
-              step={1}
-              {...form.register('failure_escape_max_fallbacks', {
-                min: 1,
-                valueAsNumber: true,
-              })}
-            />
-            <p className='text-muted-foreground text-xs'>
-              {t(
-                'Maximum channel fallbacks after an affinity-bound upstream failure. Timeout responses remain capped at one.'
-              )}
-            </p>
-          </div>
-        )}
 
         <Separator />
 

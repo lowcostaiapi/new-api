@@ -1,15 +1,6 @@
 package operation_setting
 
-import (
-	"strings"
-
-	"github.com/QuantumNous/new-api/setting/config"
-)
-
-const (
-	DefaultChannelAffinityFailureEscapeMaxFallbacks      = 1
-	DefaultCodexChannelAffinityFailureEscapeMaxFallbacks = 3
-)
+import "github.com/QuantumNous/new-api/setting/config"
 
 type ChannelAffinityKeySource struct {
 	Type string `json:"type"` // context_int, context_string, request_header, gjson
@@ -29,22 +20,11 @@ type ChannelAffinityRule struct {
 
 	ParamOverrideTemplate map[string]interface{} `json:"param_override_template,omitempty"`
 
-	SkipRetryOnFailure        bool `json:"skip_retry_on_failure"`
-	FailureEscapeMaxFallbacks int  `json:"failure_escape_max_fallbacks,omitempty"`
+	SkipRetryOnFailure bool `json:"skip_retry_on_failure"`
 
 	IncludeUsingGroup bool `json:"include_using_group"`
 	IncludeModelName  bool `json:"include_model_name"`
 	IncludeRuleName   bool `json:"include_rule_name"`
-}
-
-func (r ChannelAffinityRule) GetFailureEscapeMaxFallbacks() int {
-	if r.FailureEscapeMaxFallbacks > 0 {
-		return r.FailureEscapeMaxFallbacks
-	}
-	if strings.EqualFold(strings.TrimSpace(r.Name), "codex cli trace") {
-		return DefaultCodexChannelAffinityFailureEscapeMaxFallbacks
-	}
-	return DefaultChannelAffinityFailureEscapeMaxFallbacks
 }
 
 type ChannelAffinitySetting struct {
@@ -143,14 +123,13 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "prompt_cache_key"},
 			},
-			ValueRegex:                "",
-			TTLSeconds:                0,
-			ParamOverrideTemplate:     buildCodexPassHeaderTemplate(),
-			SkipRetryOnFailure:        true,
-			FailureEscapeMaxFallbacks: DefaultCodexChannelAffinityFailureEscapeMaxFallbacks,
-			IncludeUsingGroup:         true,
-			IncludeRuleName:           true,
-			UserAgentInclude:          nil,
+			ValueRegex:            "",
+			TTLSeconds:            0,
+			ParamOverrideTemplate: buildCodexPassHeaderTemplate(),
+			SkipRetryOnFailure:    true,
+			IncludeUsingGroup:     true,
+			IncludeRuleName:       true,
+			UserAgentInclude:      nil,
 		},
 		{
 			Name:       "claude cli trace",
