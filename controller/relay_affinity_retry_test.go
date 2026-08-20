@@ -2,11 +2,13 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -24,7 +26,16 @@ func buildAffinityRetryContext(t *testing.T) *gin.Context {
 	return ctx
 }
 
-func TestShouldRetryEscapesChannelAffinityOnceForCapacityFailure(t *testing.T) {
+func setRetryTimesForTest(t *testing.T, retryTimes int) {
+	t.Helper()
+	previous := common.RetryTimes
+	common.RetryTimes = retryTimes
+	t.Cleanup(func() {
+		common.RetryTimes = previous
+	})
+}
+
+func TestShouldRetryEscapesChannelAffinityThenUsesNormalRetryBudget(t *testing.T) {
 	ctx := buildAffinityRetryContext(t)
 	err503 := types.NewOpenAIError(
 		errors.New("group capacity exhausted"),
@@ -32,9 +43,14 @@ func TestShouldRetryEscapesChannelAffinityOnceForCapacityFailure(t *testing.T) {
 		http.StatusServiceUnavailable,
 	)
 
+	// The first failure releases affinity. Subsequent failures follow the
+	// ordinary RetryTimes/status-code policy instead of being stopped by the
+	// one-time affinity escape marker.
 	require.True(t, shouldRetry(ctx, err503, 3))
 	require.True(t, service.HasEscapedChannelAffinityFailure(ctx))
-	require.False(t, shouldRetry(ctx, err503, 2))
+	require.True(t, shouldRetry(ctx, err503, 2))
+	require.True(t, shouldRetry(ctx, err503, 1))
+	require.False(t, shouldRetry(ctx, err503, 0))
 }
 
 func TestShouldRetryKeepsAffinityForNonEscapeStatus(t *testing.T) {
@@ -74,7 +90,8 @@ func TestShouldRetryDoesNotEscapeSpecificChannel(t *testing.T) {
 	require.False(t, service.HasEscapedChannelAffinityFailure(ctx))
 }
 
-func TestShouldRetryConfigured524UsesStandardRetryBudget(t *testing.T) {
+func TestShouldRetryConfigured524StillUsesOneRetryGuard(t *testing.T) {
+	setRetryTimesForTest(t, 4)
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	err524 := types.NewOpenAIError(
@@ -83,11 +100,32 @@ func TestShouldRetryConfigured524UsesStandardRetryBudget(t *testing.T) {
 		524,
 	)
 
-	// 524 follows the same configured status-code path as 502/503: every
-	// remaining RetryTimes slot is eligible, with no 524-specific allowance.
+	// With RetryTimes=4, the first failure may trigger one timeout fallback;
+	// after one retry, retryTimes=3 and the timeout guard stops further tries.
 	require.True(t, shouldRetry(ctx, err524, 4))
-	require.True(t, shouldRetry(ctx, err524, 1))
+	require.False(t, shouldRetry(ctx, err524, 3))
 	require.False(t, shouldRetry(ctx, err524, 0))
+}
+
+func TestShouldRetryEscapedChannelErrorTimeoutStillUsesOneRetryGuard(t *testing.T) {
+	setRetryTimesForTest(t, 4)
+	gin.SetMode(gin.TestMode)
+	for _, code := range []int{http.StatusGatewayTimeout, 524} {
+		t.Run(fmt.Sprintf("code_%d", code), func(t *testing.T) {
+			ctx := buildAffinityRetryContext(t)
+			err := types.NewOpenAIError(
+				errors.New("adapter timeout"),
+				types.ErrorCodeChannelResponseTimeExceeded,
+				code,
+			)
+
+			// The first failure escapes affinity; the next timeout must still be
+			// blocked even though its error code is channel:*.
+			require.True(t, shouldRetry(ctx, err, 4))
+			require.True(t, service.HasEscapedChannelAffinityFailure(ctx))
+			require.False(t, shouldRetry(ctx, err, 3))
+		})
+	}
 }
 
 func TestShouldRetryConfigured524StillHonorsSpecificChannel(t *testing.T) {

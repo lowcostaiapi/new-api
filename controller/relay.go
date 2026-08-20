@@ -338,7 +338,13 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		}
 		return false
 	}
-	if service.HasEscapedChannelAffinityFailure(c) {
+	// Once affinity has been released, keep applying the normal retry
+	// budget and status-code policy to subsequent channel failures.
+	code := openaiErr.StatusCode
+	// 504/524 是超时类错误:换渠道重试有意义,但每次都要等上游超时(约 2 分钟),
+	// 多次重试会拖死用户。护栏必须放在 IsChannelError 之前,避免某些适配器
+	// 将超时包装成 channel:* 错误时绕过“只额外重试 1 次”的限制。
+	if (code == http.StatusGatewayTimeout || code == 524) && retryTimes < common.RetryTimes {
 		return false
 	}
 	if types.IsChannelError(openaiErr) {
@@ -353,7 +359,6 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
 	}
-	code := openaiErr.StatusCode
 	if code >= 200 && code < 300 {
 		return false
 	}
@@ -361,11 +366,6 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		return true
 	}
 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
-		return false
-	}
-	// 504/524 是超时类错误:换渠道重试有意义,但每次都要等上游超时(约 2 分钟),
-	// 多次重试会拖死用户。护栏:只允许在首次失败后额外重试 1 次(不是首次失败时直接放弃)。
-	if (code == http.StatusGatewayTimeout || code == 524) && retryTimes < common.RetryTimes {
 		return false
 	}
 	return operation_setting.ShouldRetryByStatusCode(code)

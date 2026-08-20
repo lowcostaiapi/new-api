@@ -667,7 +667,14 @@ func TryEscapeChannelAffinityFailure(c *gin.Context, statusCode int, retryTimes 
 		if info, ok := anyInfo.(map[string]interface{}); ok {
 			info["failure_escape"] = true
 			info["failure_escape_status_code"] = statusCode
-			info["failure_escape_max_fallbacks"] = 1
+			// 502/503 use the remaining RetryTimes budget after affinity is
+			// released. 504/524 remain capped at one extra try because each
+			// attempt can consume the 120-second timeout wall.
+			maxFallbacks := retryTimes
+			if statusCode == 504 || statusCode == 524 {
+				maxFallbacks = 1
+			}
+			info["failure_escape_max_fallbacks"] = maxFallbacks
 		}
 	}
 	return true

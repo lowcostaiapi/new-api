@@ -31,6 +31,7 @@ func buildAffinityEscapeContext(t *testing.T) (*gin.Context, string) {
 		SkipRetry:  true,
 	})
 	ctx.Set(ginKeyChannelAffinitySkipRetry, true)
+	ctx.Set(ginKeyChannelAffinityLogInfo, map[string]interface{}{})
 	return ctx, cacheKeySuffix
 }
 
@@ -44,6 +45,10 @@ func TestTryEscapeChannelAffinityFailureClearsCacheOnce(t *testing.T) {
 	_, found, err := getChannelAffinityCache().Get(cacheKeySuffix)
 	require.NoError(t, err)
 	require.False(t, found)
+	infoAny, ok := ctx.Get(ginKeyChannelAffinityLogInfo)
+	require.True(t, ok)
+	info := infoAny.(map[string]interface{})
+	require.Equal(t, 3, info["failure_escape_max_fallbacks"])
 	require.False(t, TryEscapeChannelAffinityFailure(ctx, http.StatusServiceUnavailable, 2))
 }
 
