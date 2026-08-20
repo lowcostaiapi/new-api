@@ -43,14 +43,11 @@ func TestShouldRetryEscapesChannelAffinityThenUsesNormalRetryBudget(t *testing.T
 		http.StatusServiceUnavailable,
 	)
 
-	// The first failure releases affinity. Subsequent failures follow the
-	// ordinary RetryTimes/status-code policy instead of being stopped by the
-	// one-time affinity escape marker.
+	// The first failure releases affinity and consumes the default one
+	// fallback. Missing rule config keeps the legacy behavior.
 	require.True(t, shouldRetry(ctx, err503, 3))
 	require.True(t, service.HasEscapedChannelAffinityFailure(ctx))
-	require.True(t, shouldRetry(ctx, err503, 2))
-	require.True(t, shouldRetry(ctx, err503, 1))
-	require.False(t, shouldRetry(ctx, err503, 0))
+	require.False(t, shouldRetry(ctx, err503, 2))
 }
 
 func TestShouldRetryKeepsAffinityForNonEscapeStatus(t *testing.T) {
@@ -63,6 +60,22 @@ func TestShouldRetryKeepsAffinityForNonEscapeStatus(t *testing.T) {
 
 	require.False(t, shouldRetry(ctx, err429, 3))
 	require.False(t, service.HasEscapedChannelAffinityFailure(ctx))
+}
+
+func TestShouldRetryWithoutAffinityKeepsNormalRetryBudget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("channel_affinity_skip_retry_on_failure", false)
+	err503 := types.NewOpenAIError(
+		errors.New("service unavailable"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusServiceUnavailable,
+	)
+
+	require.True(t, shouldRetry(ctx, err503, 3))
+	require.True(t, shouldRetry(ctx, err503, 2))
+	require.True(t, shouldRetry(ctx, err503, 1))
+	require.False(t, shouldRetry(ctx, err503, 0))
 }
 
 func TestShouldRetryDoesNotEscapeAffinityWithoutRetryBudget(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 // 504/524 是超时类错误:换渠道重试有意义,但每次都要等上游超时(约 2 分钟),
 // 多次重试会拖死用户。护栏:只允许额外重试 1 次。
 func TestShouldRetryTimeoutStatusLimitedToOneRetry(t *testing.T) {
+	setRetryTimesForTest(t, 2)
 	gin.SetMode(gin.TestMode)
 	for _, code := range []int{http.StatusGatewayTimeout, 524} {
 		t.Run(fmt.Sprintf("code_%d", code), func(t *testing.T) {

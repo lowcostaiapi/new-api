@@ -229,10 +229,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
 
+		// Decide before recording the error so the consume log captures the
+		// affinity escape budget/count that this failure consumed.
+		willRetry := shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 		retryParam.MarkChannelFailed(channel.Id)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		if !willRetry {
 			break
 		}
 	}
@@ -348,7 +351,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		return false
 	}
 	if types.IsChannelError(openaiErr) {
-		return true
+		return service.ConsumeChannelAffinityFailureFallback(c, retryTimes)
 	}
 	if types.IsSkipRetryError(openaiErr) {
 		return false
@@ -363,12 +366,12 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		return false
 	}
 	if code < 100 || code > 599 {
-		return true
+		return service.ConsumeChannelAffinityFailureFallback(c, retryTimes)
 	}
 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
 		return false
 	}
-	return operation_setting.ShouldRetryByStatusCode(code)
+	return operation_setting.ShouldRetryByStatusCode(code) && service.ConsumeChannelAffinityFailureFallback(c, retryTimes)
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {

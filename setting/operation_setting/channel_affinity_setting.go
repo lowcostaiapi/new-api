@@ -21,6 +21,8 @@ type ChannelAffinityRule struct {
 	ParamOverrideTemplate map[string]interface{} `json:"param_override_template,omitempty"`
 
 	SkipRetryOnFailure bool `json:"skip_retry_on_failure"`
+	// 0 keeps backward compatibility and means one fallback attempt.
+	FailureEscapeMaxFallbacks int `json:"failure_escape_max_fallbacks,omitempty"`
 
 	IncludeUsingGroup bool `json:"include_using_group"`
 	IncludeModelName  bool `json:"include_model_name"`
@@ -123,13 +125,14 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "prompt_cache_key"},
 			},
-			ValueRegex:            "",
-			TTLSeconds:            0,
-			ParamOverrideTemplate: buildCodexPassHeaderTemplate(),
-			SkipRetryOnFailure:    true,
-			IncludeUsingGroup:     true,
-			IncludeRuleName:       true,
-			UserAgentInclude:      nil,
+			ValueRegex:                "",
+			TTLSeconds:                0,
+			ParamOverrideTemplate:     buildCodexPassHeaderTemplate(),
+			SkipRetryOnFailure:        true,
+			FailureEscapeMaxFallbacks: 3,
+			IncludeUsingGroup:         true,
+			IncludeRuleName:           true,
+			UserAgentInclude:          nil,
 		},
 		{
 			Name:       "claude cli trace",

@@ -79,6 +79,7 @@ interface RuleFormValues {
   value_regex: string
   ttl_seconds: number
   skip_retry_on_failure: boolean
+  failure_escape_max_fallbacks: number
   include_using_group: boolean
   include_model_name: boolean
   include_rule_name: boolean
@@ -128,6 +129,7 @@ export function RuleEditorDialog(props: Props) {
       value_regex: '',
       ttl_seconds: 0,
       skip_retry_on_failure: false,
+      failure_escape_max_fallbacks: 1,
       include_using_group: true,
       include_model_name: false,
       include_rule_name: true,
@@ -144,6 +146,7 @@ export function RuleEditorDialog(props: Props) {
       value_regex: r.value_regex || '',
       ttl_seconds: r.ttl_seconds || 0,
       skip_retry_on_failure: !!r.skip_retry_on_failure,
+      failure_escape_max_fallbacks: r.failure_escape_max_fallbacks || ((r.name || '').trim().toLowerCase() === 'codex cli trace' ? 3 : 1),
       include_using_group: r.include_using_group ?? true,
       include_model_name: !!r.include_model_name,
       include_rule_name: r.include_rule_name ?? true,
@@ -176,6 +179,7 @@ export function RuleEditorDialog(props: Props) {
         value_regex: '',
         ttl_seconds: 0,
         skip_retry_on_failure: false,
+        failure_escape_max_fallbacks: 1,
         include_using_group: true,
         include_model_name: false,
         include_rule_name: true,
@@ -230,6 +234,7 @@ export function RuleEditorDialog(props: Props) {
       value_regex: values.value_regex.trim(),
       ttl_seconds: Number(values.ttl_seconds || 0),
       skip_retry_on_failure: values.skip_retry_on_failure,
+      failure_escape_max_fallbacks: Math.max(1, Number(values.failure_escape_max_fallbacks || 1)),
       include_using_group: values.include_using_group,
       include_model_name: values.include_model_name,
       include_rule_name: values.include_rule_name,
@@ -300,6 +305,19 @@ export function RuleEditorDialog(props: Props) {
           onCheckedChange={(v) => form.setValue('skip_retry_on_failure', v)}
           label={t('Skip retry on failure')}
         />
+
+        <div className='grid gap-1.5'>
+          <Label>{t('Affinity fallback attempts')}</Label>
+          <Input
+            type='number'
+            min={1}
+            step={1}
+            {...form.register('failure_escape_max_fallbacks', { valueAsNumber: true })}
+          />
+          <p className='text-muted-foreground text-xs'>
+            {t('Maximum channel fallbacks after an affinity-bound upstream failure. Timeout responses remain capped at one.')}
+          </p>
+        </div>
 
         <Separator />
 

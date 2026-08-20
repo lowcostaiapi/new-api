@@ -586,13 +586,22 @@ export function ChannelAffinitySection(props: Props) {
                 id: 'retry',
                 header: t('Retry'),
                 cell: (rule) => (
-                  <StatusBadge
-                    label={
-                      rule.skip_retry_on_failure ? t('No Retry') : t('Retry')
-                    }
-                    variant={rule.skip_retry_on_failure ? 'danger' : 'neutral'}
-                    copyable={false}
-                  />
+                  <div className='flex items-center gap-1'>
+                    <StatusBadge
+                      label={
+                        rule.skip_retry_on_failure ? t('No Retry') : t('Retry')
+                      }
+                      variant={rule.skip_retry_on_failure ? 'danger' : 'neutral'}
+                      copyable={false}
+                    />
+                    {rule.skip_retry_on_failure && (
+                      <StatusBadge
+                        label={`×${(rule.failure_escape_max_fallbacks && rule.failure_escape_max_fallbacks > 0) ? rule.failure_escape_max_fallbacks : ((rule.name || '').trim().toLowerCase() === 'codex cli trace' ? 3 : 1)}`}
+                        variant='neutral'
+                        copyable={false}
+                      />
+                    )}
+                  </div>
                 ),
               },
               {

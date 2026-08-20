@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"hash/fnv"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,12 +21,14 @@ import (
 )
 
 const (
-	ginKeyChannelAffinityCacheKey   = "channel_affinity_cache_key"
-	ginKeyChannelAffinityTTLSeconds = "channel_affinity_ttl_seconds"
-	ginKeyChannelAffinityMeta       = "channel_affinity_meta"
-	ginKeyChannelAffinityLogInfo    = "channel_affinity_log_info"
-	ginKeyChannelAffinitySkipRetry  = "channel_affinity_skip_retry_on_failure"
-	ginKeyChannelAffinityEscaped    = "channel_affinity_failure_escaped"
+	ginKeyChannelAffinityCacheKey      = "channel_affinity_cache_key"
+	ginKeyChannelAffinityTTLSeconds    = "channel_affinity_ttl_seconds"
+	ginKeyChannelAffinityMeta          = "channel_affinity_meta"
+	ginKeyChannelAffinityLogInfo       = "channel_affinity_log_info"
+	ginKeyChannelAffinitySkipRetry     = "channel_affinity_skip_retry_on_failure"
+	ginKeyChannelAffinityEscaped       = "channel_affinity_failure_escaped"
+	ginKeyChannelAffinityFallbackCount = "channel_affinity_failure_fallback_count"
+	ginKeyChannelAffinityFallbackMax   = "channel_affinity_failure_fallback_max"
 
 	channelAffinityCacheNamespace           = "new-api:channel_affinity:v1"
 	channelAffinityUsageCacheStatsNamespace = "new-api:channel_affinity_usage_cache_stats:v1"
@@ -42,19 +45,20 @@ var (
 )
 
 type channelAffinityMeta struct {
-	CacheKey       string
-	TTLSeconds     int
-	RuleName       string
-	SkipRetry      bool
-	ParamTemplate  map[string]interface{}
-	KeySourceType  string
-	KeySourceKey   string
-	KeySourcePath  string
-	KeyHint        string
-	KeyFingerprint string
-	UsingGroup     string
-	ModelName      string
-	RequestPath    string
+	CacheKey                  string
+	TTLSeconds                int
+	RuleName                  string
+	SkipRetry                 bool
+	FailureEscapeMaxFallbacks int
+	ParamTemplate             map[string]interface{}
+	KeySourceType             string
+	KeySourceKey              string
+	KeySourcePath             string
+	KeyHint                   string
+	KeyFingerprint            string
+	UsingGroup                string
+	ModelName                 string
+	RequestPath               string
 }
 
 type ChannelAffinityStatsContext struct {
@@ -595,19 +599,20 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, affinityValue)
 		cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
 		setChannelAffinityContext(c, channelAffinityMeta{
-			CacheKey:       cacheKeyFull,
-			TTLSeconds:     ttlSeconds,
-			RuleName:       rule.Name,
-			SkipRetry:      rule.SkipRetryOnFailure,
-			ParamTemplate:  cloneStringAnyMap(rule.ParamOverrideTemplate),
-			KeySourceType:  strings.TrimSpace(usedSource.Type),
-			KeySourceKey:   strings.TrimSpace(usedSource.Key),
-			KeySourcePath:  strings.TrimSpace(usedSource.Path),
-			KeyHint:        buildChannelAffinityKeyHint(affinityValue),
-			KeyFingerprint: affinityFingerprint(affinityValue),
-			UsingGroup:     usingGroup,
-			ModelName:      modelName,
-			RequestPath:    path,
+			CacheKey:                  cacheKeyFull,
+			TTLSeconds:                ttlSeconds,
+			RuleName:                  rule.Name,
+			SkipRetry:                 rule.SkipRetryOnFailure,
+			FailureEscapeMaxFallbacks: configuredChannelAffinityFailureEscapeMaxFallbacks(rule),
+			ParamTemplate:             cloneStringAnyMap(rule.ParamOverrideTemplate),
+			KeySourceType:             strings.TrimSpace(usedSource.Type),
+			KeySourceKey:              strings.TrimSpace(usedSource.Key),
+			KeySourcePath:             strings.TrimSpace(usedSource.Path),
+			KeyHint:                   buildChannelAffinityKeyHint(affinityValue),
+			KeyFingerprint:            affinityFingerprint(affinityValue),
+			UsingGroup:                usingGroup,
+			ModelName:                 modelName,
+			RequestPath:               path,
 		})
 
 		cache := getChannelAffinityCache()
@@ -642,8 +647,60 @@ func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	return meta.SkipRetry
 }
 
-// TryEscapeChannelAffinityFailure releases an affinity-bound request for one
-// fallback attempt when the upstream rejected it before a response stream began.
+const (
+	defaultChannelAffinityFailureEscapeMaxFallbacks      = 1
+	defaultCodexChannelAffinityFailureEscapeMaxFallbacks = 3
+)
+
+// configuredChannelAffinityFailureEscapeMaxFallbacks preserves the legacy
+// one-fallback default for arbitrary rules while giving the built-in Codex
+// rule the requested three fallback attempts when an old options JSON omits
+// the new field. An explicit positive rule value always wins.
+func configuredChannelAffinityFailureEscapeMaxFallbacks(rule operation_setting.ChannelAffinityRule) int {
+	if rule.FailureEscapeMaxFallbacks > 0 {
+		return rule.FailureEscapeMaxFallbacks
+	}
+	if strings.EqualFold(strings.TrimSpace(rule.Name), "codex cli trace") {
+		return defaultCodexChannelAffinityFailureEscapeMaxFallbacks
+	}
+	return defaultChannelAffinityFailureEscapeMaxFallbacks
+}
+
+func channelAffinityFailureEscapeMaxFallbacks(c *gin.Context) int {
+	if c != nil {
+		if max := c.GetInt(ginKeyChannelAffinityFallbackMax); max > 0 {
+			return max
+		}
+		if meta, ok := getChannelAffinityMeta(c); ok && meta.FailureEscapeMaxFallbacks > 0 {
+			return meta.FailureEscapeMaxFallbacks
+		}
+	}
+	return defaultChannelAffinityFailureEscapeMaxFallbacks
+}
+
+func channelAffinityFailureEscapeFallbackCount(c *gin.Context) int {
+	if c == nil {
+		return 0
+	}
+	return c.GetInt(ginKeyChannelAffinityFallbackCount)
+}
+
+func updateChannelAffinityFailureEscapeLogInfo(c *gin.Context, maxFallbacks int, count int) {
+	if c == nil {
+		return
+	}
+	if anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
+		if info, ok := anyInfo.(map[string]interface{}); ok {
+			info["failure_escape_max_fallbacks"] = maxFallbacks
+			info["failure_escape_count"] = count
+		}
+	}
+}
+
+// TryEscapeChannelAffinityFailure releases an affinity-bound request for the
+// first fallback attempt when the upstream rejected it before a response
+// stream began. The per-rule fallback budget is independent from RetryTimes;
+// RetryTimes remains the hard upper bound for the whole request.
 func TryEscapeChannelAffinityFailure(c *gin.Context, statusCode int, retryTimes int) bool {
 	if c == nil || retryTimes <= 0 || !ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
@@ -660,30 +717,56 @@ func TryEscapeChannelAffinityFailure(c *gin.Context, statusCode int, retryTimes 
 		return false
 	}
 
+	maxFallbacks := channelAffinityFailureEscapeMaxFallbacks(c)
+	if statusCode == http.StatusGatewayTimeout || statusCode == 524 {
+		// A timeout fallback is deliberately capped at one extra channel;
+		// a larger per-rule budget must not stack the ~120s timeout wall.
+		maxFallbacks = 1
+	}
+	if maxFallbacks <= 0 {
+		return false
+	}
+	c.Set(ginKeyChannelAffinityFallbackMax, maxFallbacks)
 	c.Set(ginKeyChannelAffinityEscaped, true)
+	c.Set(ginKeyChannelAffinityFallbackCount, 1)
 	ClearCurrentChannelAffinityCache(c)
 	c.Set(ginKeyChannelAffinitySkipRetry, false)
 	if anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
 		if info, ok := anyInfo.(map[string]interface{}); ok {
 			info["failure_escape"] = true
 			info["failure_escape_status_code"] = statusCode
-			// 502/503 use the remaining RetryTimes budget after affinity is
-			// released. 504/524 remain capped at one extra try because each
-			// attempt can consume the 120-second timeout wall.
-			maxFallbacks := retryTimes
-			if statusCode == 504 || statusCode == 524 {
-				maxFallbacks = 1
-			}
 			info["failure_escape_max_fallbacks"] = maxFallbacks
+			info["failure_escape_count"] = 1
 		}
 	}
+	return true
+}
+
+// ConsumeChannelAffinityFailureFallback admits one more post-affinity
+// fallback. Call it only after the ordinary status/error policy has accepted
+// the retry. It returns true for non-escaped requests so the normal retry path
+// remains unchanged.
+func ConsumeChannelAffinityFailureFallback(c *gin.Context, retryTimes int) bool {
+	if retryTimes <= 0 {
+		return false
+	}
+	if !HasEscapedChannelAffinityFailure(c) {
+		return true
+	}
+	maxFallbacks := channelAffinityFailureEscapeMaxFallbacks(c)
+	count := channelAffinityFailureEscapeFallbackCount(c)
+	if count >= maxFallbacks {
+		return false
+	}
+	count++
+	c.Set(ginKeyChannelAffinityFallbackCount, count)
+	updateChannelAffinityFailureEscapeLogInfo(c, maxFallbacks, count)
 	return true
 }
 
 func HasEscapedChannelAffinityFailure(c *gin.Context) bool {
 	return c != nil && c.GetBool(ginKeyChannelAffinityEscaped)
 }
-
 func ClearCurrentChannelAffinityCache(c *gin.Context) bool {
 	if c == nil {
 		return false
