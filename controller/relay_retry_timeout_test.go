@@ -51,5 +51,5 @@ func TestShouldRetryNonTimeoutStatusNotLimited(t *testing.T) {
 
 	err503 := types.NewOpenAIError(errors.New("service unavailable"), types.ErrorCodeBadResponseStatusCode, http.StatusServiceUnavailable)
 	require.True(t, shouldRetry(ctx, err503, 1))
-	require.True(t, shouldRetry(ctx, err503, 0))
+	require.False(t, shouldRetry(ctx, err503, 0))
 }
