@@ -12,6 +12,7 @@ import (
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	constant2 "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -396,7 +397,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	return targetConn, nil
 }
 
-func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
+func startPingKeepAlive(c *gin.Context, firstDelay time.Duration, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
 	pingerCtx, stopPinger := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
@@ -413,13 +414,20 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 		if pingInterval <= 0 {
 			pingInterval = helper.DefaultPingInterval
 		}
+		if firstDelay <= 0 {
+			firstDelay = helper.DefaultPingFirstDelay
+		}
 
-		ticker := time.NewTicker(pingInterval)
-		// 确保在任何情况下都清理ticker
+		firstTimer := time.NewTimer(firstDelay)
+		defer firstTimer.Stop()
+		var ticker *time.Ticker
 		defer func() {
-			ticker.Stop()
-			logger.LogDebug(c, "SSE ping ticker stopped")
+			if ticker != nil {
+				ticker.Stop()
+			}
+			logger.LogDebug(c, "SSE ping timers stopped")
 		}()
+		pingC := firstTimer.C
 
 		var pingMutex sync.Mutex
 		logger.LogDebug(c, "SSE ping goroutine started")
@@ -432,10 +440,14 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 		for {
 			select {
 			// 发送 ping 数据
-			case <-ticker.C:
+			case <-pingC:
 				if err := sendPingData(c, &pingMutex); err != nil {
 					logger.LogDebug(c, "SSE ping error, stopping goroutine: %s", err.Error())
 					return
+				}
+				if ticker == nil {
+					ticker = time.NewTicker(pingInterval)
+					pingC = ticker.C
 				}
 			// 收到退出信号
 			case <-pingerCtx.Done():
@@ -490,11 +502,16 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	var pingerDone <-chan struct{}
 	if info.IsStream {
 		helper.SetEventStreamHeaders(c)
+		// Flushing headers here marks Gin's writer as written and commits a 200
+		// response. That would prevent fast upstream failures from retrying or
+		// returning a normal JSON error, so the first body write is deliberately
+		// delayed until the first keep-alive ping.
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
 		if generalSettings.PingIntervalEnabled && !info.DisablePing {
+			firstDelay := time.Duration(generalSettings.PingFirstDelaySeconds) * time.Second
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
-			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
+			stopPinger, pingerDone = startPingKeepAlive(c, firstDelay, pingInterval)
 			// 使用defer确保在任何情况下都能停止ping goroutine
 			defer func() {
 				if stopPinger != nil {
@@ -506,6 +523,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	common2.SetContextKey(c, constant2.ContextKeyUpstreamRetryAfter, "")
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
@@ -514,6 +532,8 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if resp == nil {
 		return nil, errors.New("resp is nil")
 	}
+	info.UpstreamHeaderTime = time.Now()
+	common2.SetContextKey(c, constant2.ContextKeyUpstreamRetryAfter, resp.Header.Get("Retry-After"))
 
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)

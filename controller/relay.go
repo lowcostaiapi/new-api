@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,19 +92,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
-			switch relayFormat {
-			case types.RelayFormatOpenAIRealtime:
+			if relayFormat == types.RelayFormatOpenAIRealtime {
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
-			case types.RelayFormatClaude:
-				c.JSON(newAPIError.StatusCode, gin.H{
-					"type":  "error",
-					"error": newAPIError.ToClaudeError(),
-				})
-			default:
-				c.JSON(newAPIError.StatusCode, gin.H{
-					"error": newAPIError.ToOpenAIError(),
-				})
+				return
 			}
+			writeRelayHTTPError(c, relayFormat, newAPIError)
 		}
 	}()
 
@@ -189,12 +182,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
-		relayInfo.RetryIndex = retryParam.GetRetry()
+	for ; retryParam.GetAttempt() <= common.RetryTimes; retryParam.IncreaseAttempt() {
+		relayInfo.RetryIndex = retryParam.GetAttempt()
+		common.SetContextKey(c, constant.ContextKeyUpstreamRetryAfter, "")
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
+			service.RecordRelayErrorLog(c, channelErr)
 			break
 		}
 
@@ -247,7 +242,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		})
 		c.Set("retry_errors", trail)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		willRetry := shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetAttempt())
+		retryParam.MarkChannelFailed(channel.Id)
+		if !willRetry {
 			break
 		}
 		if retryParam.GetRetry() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
@@ -255,6 +252,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// 最高档渠道永远不在重试候选里，粘在低档渠道的会话只能一路向更
 			// 低档漂。重置后从第一档选起，已试过的渠道由 getChannel 跳过。
 			retryParam.ResetRetryNextTry()
+		}
+		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
+			break
 		}
 	}
 
@@ -269,6 +269,120 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		})
 		// 重试已经用尽（或这个错不允许重试），错误就要回到用户手里了：实时上报给看板播报
 		service.NotifyFinalFailure(c, relayInfo, newAPIError)
+	}
+}
+
+func writeRelayHTTPError(c *gin.Context, relayFormat types.RelayFormat, relayErr *types.NewAPIError) {
+	if c == nil || relayErr == nil {
+		return
+	}
+	// SetEventStreamHeaders intentionally does not flush. Restore normal HTTP
+	// headers while the response is still uncommitted so fast failures remain
+	// machine-readable JSON responses instead of empty SSE streams.
+	helper.ResetEventStreamHeaders(c)
+	if relayFormat == types.RelayFormatClaude {
+		c.JSON(relayErr.StatusCode, gin.H{
+			"type":  "error",
+			"error": relayErr.ToClaudeError(),
+		})
+		return
+	}
+	c.JSON(relayErr.StatusCode, gin.H{
+		"error": relayErr.ToOpenAIError(),
+	})
+}
+
+const maxRelayRetryBackoff = 2 * time.Second
+
+var defaultRelayRetryBackoff = []time.Duration{
+	100 * time.Millisecond,
+	300 * time.Millisecond,
+	800 * time.Millisecond,
+	1600 * time.Millisecond,
+}
+
+func configuredRelayRetryBackoff(retryIndex int) time.Duration {
+	if retryIndex < 0 {
+		retryIndex = 0
+	}
+	delays := make([]time.Duration, 0, len(defaultRelayRetryBackoff))
+	for _, raw := range strings.Split(operation_setting.GetGeneralSetting().RetryBackoffMilliseconds, ",") {
+		milliseconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+		if err != nil || milliseconds < 0 {
+			continue
+		}
+		delay := maxRelayRetryBackoff
+		if milliseconds < maxRelayRetryBackoff.Milliseconds() {
+			delay = time.Duration(milliseconds) * time.Millisecond
+		}
+		delays = append(delays, delay)
+	}
+	if len(delays) == 0 {
+		delays = defaultRelayRetryBackoff
+	}
+	if retryIndex >= len(delays) {
+		retryIndex = len(delays) - 1
+	}
+	return delays[retryIndex]
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds < 0 {
+			return 0, false
+		}
+		if seconds >= int64(maxRelayRetryBackoff/time.Second) {
+			return maxRelayRetryBackoff, true
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	retryAt, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	delay := retryAt.Sub(now)
+	if delay < 0 {
+		delay = 0
+	}
+	if delay > maxRelayRetryBackoff {
+		delay = maxRelayRetryBackoff
+	}
+	return delay, true
+}
+
+func relayRetryDelay(c *gin.Context, retryIndex int, now time.Time) time.Duration {
+	delay := configuredRelayRetryBackoff(retryIndex)
+	retryAfterValue := ""
+	if c != nil {
+		retryAfterValue = common.GetContextKeyString(c, constant.ContextKeyUpstreamRetryAfter)
+	}
+	if retryAfter, ok := parseRetryAfter(retryAfterValue, now); ok {
+		delay = retryAfter
+	}
+	return delay
+}
+
+func waitForRelayRetry(c *gin.Context, retryIndex int) bool {
+	delay := relayRetryDelay(c, retryIndex, time.Now())
+	if delay <= 0 {
+		return c == nil || c.Request == nil || c.Request.Context().Err() == nil
+	}
+	logger.LogDebug(c, "waiting %dms before relay retry", delay.Milliseconds())
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	if c == nil || c.Request == nil {
+		<-timer.C
+		return true
+	}
+	select {
+	case <-timer.C:
+		return true
+	case <-c.Request.Context().Done():
+		return false
 	}
 }
 
@@ -350,10 +464,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
 	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		return nil, types.NewErrorWithStatusCode(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		return nil, types.NewErrorWithStatusCode(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 	}
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
@@ -405,40 +519,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
-		// 保存错误日志到mysql中
-		userId := c.GetInt("id")
-		tokenName := c.GetString("token_name")
-		modelName := c.GetString("original_model")
-		tokenId := c.GetInt("token_id")
-		userGroup := c.GetString("group")
-		channelId := c.GetInt("channel_id")
-		other := make(map[string]interface{})
-		if c.Request != nil && c.Request.URL != nil {
-			other["request_path"] = c.Request.URL.Path
-		}
-		other["error_type"] = err.GetErrorType()
-		other["error_code"] = err.GetErrorCode()
-		other["status_code"] = err.StatusCode
-		other["channel_id"] = channelId
-		other["channel_name"] = c.GetString("channel_name")
-		other["channel_type"] = c.GetInt("channel_type")
-		adminInfo := make(map[string]interface{})
-		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
-		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
-		if isMultiKey {
-			adminInfo["is_multi_key"] = true
-			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
-		}
-		service.AppendChannelAffinityAdminInfo(c, adminInfo)
-		other["admin_info"] = adminInfo
-		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
-		if startTime.IsZero() {
-			startTime = time.Now()
-		}
-		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
-	}
+	service.RecordRelayErrorLog(c, err)
 
 }
 
