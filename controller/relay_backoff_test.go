@@ -74,3 +74,21 @@ func TestWriteRelayHTTPErrorRestoresStandardJSONResponse(t *testing.T) {
 	assert.Equal(t, "application/json; charset=utf-8", recorder.Header().Get("Content-Type"))
 	assert.Contains(t, recorder.Body.String(), `"code":"get_channel_failed"`)
 }
+
+func TestWriteRelayHTTPErrorReturnsJSONForUpstreamHeaderTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	relayErr := types.NewErrorWithStatusCode(
+		context.DeadlineExceeded,
+		types.ErrorCodeChannelResponseTimeExceeded,
+		http.StatusGatewayTimeout,
+	)
+
+	writeRelayHTTPError(c, types.RelayFormatOpenAIResponses, relayErr)
+
+	assert.Equal(t, http.StatusGatewayTimeout, recorder.Code)
+	assert.Equal(t, "application/json; charset=utf-8", recorder.Header().Get("Content-Type"))
+	assert.Contains(t, recorder.Body.String(), `"code":"channel:response_time_exceeded"`)
+}

@@ -2608,6 +2608,7 @@
     "Maximum tokens including hidden reasoning tokens": "隠れ推論トークンを含む最大トークン数",
     "Maximum tokens per response": "1 回の応答あたりの最大トークン数",
     "Maximum tokens per user": "ユーザーあたりの最大トークン数",
+    "Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.": "上流レスポンスヘッダーを待って再試行するまでの最大時間です。成功ヘッダー受信後、最初のキープアライブ Ping はこの期限までに送信されます。",
     "maxRequests ≥ 0, maxSuccess ≥ 1, both ≤ 2,147,483,647": "maxRequests ≥ 0、maxSuccess ≥ 1、両方とも ≤ 2,147,483,647",
     "May be used for training by upstream provider": "上流プロバイダーが学習に利用する可能性があります",
     "Media pricing": "メディア料金",

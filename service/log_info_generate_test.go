@@ -9,6 +9,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateTextOtherInfoIncludesUpstreamHeaderTime(t *testing.T) {
@@ -26,4 +27,27 @@ func TestGenerateTextOtherInfoIncludesUpstreamHeaderTime(t *testing.T) {
 
 	assert.Equal(t, float64(250), other["uhrt"])
 	assert.Equal(t, float64(3000), other["frt"])
+}
+
+func TestGenerateTextOtherInfoIncludesRetryErrorsInAdminInfo(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	relayInfo := &relaycommon.RelayInfo{
+		StartTime:         start,
+		FirstResponseTime: start.Add(time.Second),
+		ChannelMeta:       &relaycommon.ChannelMeta{},
+	}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	retryErrors := []map[string]interface{}{{
+		"channel_id":  37,
+		"status_code": http.StatusServiceUnavailable,
+		"message":     "upstream unavailable",
+	}}
+	c.Set("retry_errors", retryErrors)
+
+	other := GenerateTextOtherInfo(c, relayInfo, 1, 1, 1, 0, 0, 0, 1)
+
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, retryErrors, adminInfo["retry_errors"])
 }

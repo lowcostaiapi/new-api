@@ -29,9 +29,11 @@ func buildAffinityEscapeContext(t *testing.T, maxFallbacks int) *gin.Context {
 func TestChannelAffinityFailureEscapeConsumesConfiguredBudget(t *testing.T) {
 	ctx := buildAffinityEscapeContext(t, 3)
 
+	require.True(t, ChannelAffinityPinnedFirstAttempt(ctx))
 	require.True(t, TryEscapeChannelAffinityFailure(ctx, http.StatusBadGateway, 4))
 	assert.True(t, HasEscapedChannelAffinityFailure(ctx))
 	assert.False(t, ShouldSkipRetryAfterChannelAffinityFailure(ctx))
+	assert.True(t, ChannelAffinityPinnedFirstAttempt(ctx))
 	require.True(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusServiceUnavailable, 3))
 	require.True(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusServiceUnavailable, 2))
 	assert.False(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusServiceUnavailable, 1))

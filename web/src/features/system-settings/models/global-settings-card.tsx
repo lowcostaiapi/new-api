@@ -404,7 +404,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Delay before the first keep-alive ping. This preserves fast cross-channel retries before streaming starts.'
+                    'Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.'
                   )}
                 </FormDescription>
                 <FormMessage />

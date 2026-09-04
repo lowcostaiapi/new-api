@@ -2608,6 +2608,7 @@
     "Maximum tokens including hidden reasoning tokens": "Maximum tokens including hidden reasoning tokens",
     "Maximum tokens per response": "Maximum tokens per response",
     "Maximum tokens per user": "Maximum tokens per user",
+    "Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.": "Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.",
     "maxRequests ≥ 0, maxSuccess ≥ 1, both ≤ 2,147,483,647": "maxRequests ≥ 0, maxSuccess ≥ 1, both ≤ 2,147,483,647",
     "May be used for training by upstream provider": "May be used for training by upstream provider",
     "Media pricing": "Media pricing",

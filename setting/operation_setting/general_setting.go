@@ -11,8 +11,11 @@ const (
 )
 
 type GeneralSetting struct {
-	DocsLink                 string `json:"docs_link"`
-	PingIntervalEnabled      bool   `json:"ping_interval_enabled"`
+	DocsLink            string `json:"docs_link"`
+	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
+	// PingFirstDelaySeconds is both the per-attempt upstream header deadline and
+	// the first downstream ping deadline. Twenty seconds leaves fast 503/429
+	// retries uncommitted while staying well below common proxy idle timeouts.
 	PingFirstDelaySeconds    int    `json:"ping_first_delay_seconds"`
 	PingIntervalSeconds      int    `json:"ping_interval_seconds"`
 	RetryBackoffMilliseconds string `json:"retry_backoff_milliseconds"`

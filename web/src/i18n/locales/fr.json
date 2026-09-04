@@ -2608,6 +2608,7 @@
     "Maximum tokens including hidden reasoning tokens": "Jetons maximum, y compris les jetons de raisonnement masqués",
     "Maximum tokens per response": "Nombre maximal de jetons par réponse",
     "Maximum tokens per user": "Nombre maximum de jetons par utilisateur",
+    "Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.": "Durée maximale d’attente des en-têtes en amont avant une nouvelle tentative. Après réception d’en-têtes valides, le premier ping de maintien en vie est envoyé avant cette échéance.",
     "maxRequests ≥ 0, maxSuccess ≥ 1, both ≤ 2,147,483,647": "maxRequests ≥ 0, maxSuccess ≥ 1, les deux ≤ 2 147 483 647",
     "May be used for training by upstream provider": "Peut être utilisé pour l'entraînement par le fournisseur amont",
     "Media pricing": "Tarification multimédia",

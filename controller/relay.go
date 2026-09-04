@@ -226,10 +226,32 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		willRetry := shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetAttempt())
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+
+		// Keep every failed attempt on the final successful/failed request log.
+		// Production monitoring uses this trail to attribute failures that were
+		// recovered by retry and therefore have no standalone failure log.
+		trailAny, _ := c.Get("retry_errors")
+		trail, _ := trailAny.([]map[string]interface{})
+		message := newAPIError.Error()
+		if runes := []rune(message); len(runes) > 200 {
+			message = string(runes[:200])
+		}
+		trail = append(trail, map[string]interface{}{
+			"channel_id":  channel.Id,
+			"status_code": newAPIError.StatusCode,
+			"message":     message,
+		})
+		c.Set("retry_errors", trail)
 		retryParam.MarkChannelFailed(channel.Id)
 
 		if !willRetry {
 			break
+		}
+		if retryParam.GetAttempt() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
+			// An affinity-pinned first attempt did not consume a priority tier.
+			// Restart selection at the highest tier; FailedChannels still excludes
+			// the pinned channel that just failed.
+			retryParam.ResetRetryNextTry()
 		}
 		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
 			break

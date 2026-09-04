@@ -646,6 +646,17 @@ func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	return meta.SkipRetry
 }
 
+// ChannelAffinityPinnedFirstAttempt reports whether the first attempt was
+// selected directly from the affinity cache and therefore consumed no
+// priority tier in the normal channel selector.
+func ChannelAffinityPinnedFirstAttempt(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	_, ok := c.Get(ginKeyChannelAffinitySkipRetry)
+	return ok
+}
+
 func channelAffinityFailureEscapeMaxFallbacks(c *gin.Context) int {
 	if c != nil {
 		if maxFallbacks := c.GetInt(ginKeyChannelAffinityFallbackMax); maxFallbacks > 0 {
