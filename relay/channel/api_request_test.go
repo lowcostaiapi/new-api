@@ -3,12 +3,65 @@ package channel
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type pingNotifyWriter struct {
+	header http.Header
+	writes chan string
+	mu     sync.Mutex
+}
+
+func (w *pingNotifyWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *pingNotifyWriter) WriteHeader(_ int) {}
+
+func (w *pingNotifyWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.writes <- string(data)
+	return len(data), nil
+}
+
+func (w *pingNotifyWriter) Flush() {}
+
+func TestStartPingKeepAliveUsesFirstDelayBeforeSteadyInterval(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := &pingNotifyWriter{
+		header: make(http.Header),
+		writes: make(chan string, 2),
+	}
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	stop, done := startPingKeepAlive(c, 80*time.Millisecond, time.Second)
+	t.Cleanup(func() {
+		stop()
+		<-done
+	})
+
+	select {
+	case data := <-w.writes:
+		t.Fatalf("ping arrived before first delay: %q", data)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	select {
+	case data := <-w.writes:
+		assert.Equal(t, ": PING\n\n", data)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for first ping")
+	}
+}
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()

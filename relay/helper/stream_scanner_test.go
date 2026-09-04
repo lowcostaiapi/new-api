@@ -288,11 +288,14 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
+	oldFirstDelay := setting.PingFirstDelaySeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
+	setting.PingFirstDelaySeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
+		setting.PingFirstDelaySeconds = oldFirstDelay
 		setting.PingIntervalSeconds = oldSeconds
 	})
 
@@ -339,11 +342,14 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
+	oldFirstDelay := setting.PingFirstDelaySeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
+	setting.PingFirstDelaySeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
+		setting.PingFirstDelaySeconds = oldFirstDelay
 		setting.PingIntervalSeconds = oldSeconds
 	})
 

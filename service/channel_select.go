@@ -107,10 +107,10 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	var err error
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
-	var failedChannels map[int]struct{}
-	if HasEscapedChannelAffinityFailure(param.Ctx) {
-		failedChannels = param.FailedChannels
-	}
+	// Failed channels must stay excluded after every attempt, including retries
+	// that originated from an affinity hit. Re-selecting the channel that just
+	// failed only burns retry budget and can trap the request on one provider.
+	failedChannels := param.FailedChannels
 
 	if param.TokenGroup == "auto" {
 		if len(setting.GetAutoGroups()) == 0 {
