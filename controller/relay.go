@@ -187,8 +187,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
-			service.RecordRelayErrorLog(c, channelErr)
+			// On a retry the candidate pool is empty only because every channel
+			// already failed in this request. Reporting "no channel available"
+			// would bury the upstream status the caller actually needs, so the
+			// error from the previous attempt wins.
+			if newAPIError == nil {
+				newAPIError = channelErr
+				service.RecordRelayErrorLog(c, channelErr)
+			}
 			break
 		}
 
@@ -247,12 +253,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if !willRetry {
 			break
 		}
-		if retryParam.GetAttempt() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
-			// An affinity-pinned first attempt did not consume a priority tier.
-			// Restart selection at the highest tier; FailedChannels still excludes
-			// the pinned channel that just failed.
-			retryParam.ResetRetryNextTry()
-		}
+		// No affinity tier reset here: MarkChannelFailed above always leaves
+		// FailedChannels non-empty, and the selector forces retry = 0 whenever
+		// the exclusion set is non-empty (model/channel_cache.go), so selection
+		// already restarts at the highest remaining tier.
 		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
 			break
 		}

@@ -50,6 +50,12 @@ const (
 	ErrorCodeDoRequestFailed    ErrorCode = "do_request_failed"
 	ErrorCodeGetChannelFailed   ErrorCode = "get_channel_failed"
 	ErrorCodeGenRelayInfoFailed ErrorCode = "gen_relay_info_failed"
+	// ErrorCodeUpstreamHeaderTimeout marks a single attempt that gave up waiting
+	// for upstream response headers. It deliberately stays out of the "channel:"
+	// namespace: one slow attempt says nothing about the channel's health, and
+	// IsChannelError would otherwise auto-disable the channel and bypass the
+	// operator-configured retry status codes.
+	ErrorCodeUpstreamHeaderTimeout ErrorCode = "upstream_header_timeout"
 
 	// channel error
 	ErrorCodeChannelNoAvailableKey        ErrorCode = "channel:no_available_key"

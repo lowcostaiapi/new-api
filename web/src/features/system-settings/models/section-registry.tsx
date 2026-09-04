@@ -76,6 +76,8 @@ const MODELS_SECTIONS = [
           RetryTimes: settings.RetryTimes,
           'general_setting.retry_backoff_milliseconds':
             settings['general_setting.retry_backoff_milliseconds'],
+          'general_setting.upstream_header_timeout_seconds':
+            settings['general_setting.upstream_header_timeout_seconds'],
           ChannelDisableThreshold: settings.ChannelDisableThreshold,
           AutomaticDisableChannelEnabled:
             settings.AutomaticDisableChannelEnabled,

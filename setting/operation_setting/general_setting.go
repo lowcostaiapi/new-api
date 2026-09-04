@@ -13,12 +13,20 @@ const (
 type GeneralSetting struct {
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
-	// PingFirstDelaySeconds is both the per-attempt upstream header deadline and
-	// the first downstream ping deadline. Twenty seconds leaves fast 503/429
-	// retries uncommitted while staying well below common proxy idle timeouts.
-	PingFirstDelaySeconds    int    `json:"ping_first_delay_seconds"`
-	PingIntervalSeconds      int    `json:"ping_interval_seconds"`
-	RetryBackoffMilliseconds string `json:"retry_backoff_milliseconds"`
+	// PingFirstDelaySeconds is the deadline for the first downstream keep-alive
+	// ping, measured from the start of the request. It is a keep-alive concern
+	// only and must stay short enough for impatient clients.
+	PingFirstDelaySeconds int `json:"ping_first_delay_seconds"`
+	PingIntervalSeconds   int `json:"ping_interval_seconds"`
+	// UpstreamHeaderTimeoutSeconds bounds how long a single streaming attempt
+	// waits for upstream response headers before it is cancelled and retried.
+	// It is deliberately separate from the ping settings: keep-alive wants a
+	// short first ping, while a slow reasoning upstream needs a long header
+	// budget, so one shared number cannot serve both. Zero disables the
+	// deadline, which is the default because cancelling a slow-but-healthy
+	// upstream turns requests that would have succeeded into 504s.
+	UpstreamHeaderTimeoutSeconds int    `json:"upstream_header_timeout_seconds"`
+	RetryBackoffMilliseconds     string `json:"retry_backoff_milliseconds"`
 	// 当前站点额度展示类型：USD / CNY / TOKENS
 	QuotaDisplayType string `json:"quota_display_type"`
 	// 自定义货币符号，用于 CUSTOM 展示类型
@@ -29,14 +37,15 @@ type GeneralSetting struct {
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	DocsLink:                   "https://docs.newapi.pro",
-	PingIntervalEnabled:        true,
-	PingFirstDelaySeconds:      20,
-	PingIntervalSeconds:        10,
-	RetryBackoffMilliseconds:   "100,300,800,1600",
-	QuotaDisplayType:           QuotaDisplayTypeUSD,
-	CustomCurrencySymbol:       "¤",
-	CustomCurrencyExchangeRate: 1.0,
+	DocsLink:                     "https://docs.newapi.pro",
+	PingIntervalEnabled:          false,
+	PingFirstDelaySeconds:        20,
+	PingIntervalSeconds:          60,
+	UpstreamHeaderTimeoutSeconds: 0,
+	RetryBackoffMilliseconds:     "100,300,800,1600",
+	QuotaDisplayType:             QuotaDisplayTypeUSD,
+	CustomCurrencySymbol:         "¤",
+	CustomCurrencyExchangeRate:   1.0,
 }
 
 func init() {

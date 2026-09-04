@@ -17,7 +17,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -444,7 +443,7 @@ func executeRelayHTTPRequest(c *gin.Context, client *http.Client, req *http.Requ
 			cancel()
 			return nil, types.NewErrorWithStatusCode(
 				errUpstreamHeaderTimeout,
-				types.ErrorCodeChannelResponseTimeExceeded,
+				types.ErrorCodeUpstreamHeaderTimeout,
 				http.StatusGatewayTimeout,
 			)
 		}
@@ -499,12 +498,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = service.GetHttpClient()
 	}
 
+	// The header deadline is independent of the ping settings. Tying it to
+	// PingIntervalEnabled would silently arm a request-cancelling timeout on
+	// every deployment that merely wants keep-alive pings.
 	headerTimeout := time.Duration(0)
-	generalSettings := operation_setting.GetGeneralSetting()
-	if info.IsStream && generalSettings.PingIntervalEnabled && !info.DisablePing {
-		headerTimeout = time.Duration(generalSettings.PingFirstDelaySeconds) * time.Second
-		if headerTimeout <= 0 {
-			headerTimeout = helper.DefaultPingFirstDelay
+	if info.IsStream {
+		if seconds := operation_setting.GetGeneralSetting().UpstreamHeaderTimeoutSeconds; seconds > 0 {
+			headerTimeout = time.Duration(seconds) * time.Second
 		}
 	}
 

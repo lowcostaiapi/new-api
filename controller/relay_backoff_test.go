@@ -82,7 +82,7 @@ func TestWriteRelayHTTPErrorReturnsJSONForUpstreamHeaderTimeout(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	relayErr := types.NewErrorWithStatusCode(
 		context.DeadlineExceeded,
-		types.ErrorCodeChannelResponseTimeExceeded,
+		types.ErrorCodeUpstreamHeaderTimeout,
 		http.StatusGatewayTimeout,
 	)
 
@@ -90,5 +90,5 @@ func TestWriteRelayHTTPErrorReturnsJSONForUpstreamHeaderTimeout(t *testing.T) {
 
 	assert.Equal(t, http.StatusGatewayTimeout, recorder.Code)
 	assert.Equal(t, "application/json; charset=utf-8", recorder.Header().Get("Content-Type"))
-	assert.Contains(t, recorder.Body.String(), `"code":"channel:response_time_exceeded"`)
+	assert.Contains(t, recorder.Body.String(), `"code":"upstream_header_timeout"`)
 }

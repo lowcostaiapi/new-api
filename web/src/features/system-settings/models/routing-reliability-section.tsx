@@ -71,6 +71,7 @@ const routingReliabilitySchema = z
     RetryTimes: z.coerce.number().min(0).max(10),
     general_setting: z.object({
       retry_backoff_milliseconds: z.string(),
+      upstream_header_timeout_seconds: z.coerce.number().min(0),
     }),
     ChannelDisableThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
@@ -122,6 +123,7 @@ type RoutingReliabilitySectionProps = {
   defaultValues: {
     RetryTimes: number
     'general_setting.retry_backoff_milliseconds': string
+    'general_setting.upstream_header_timeout_seconds': number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
@@ -141,6 +143,7 @@ function normalizeLineEndings(value: string) {
 type NormalizedRoutingReliabilityValues = {
   RetryTimes: number
   'general_setting.retry_backoff_milliseconds': string
+  'general_setting.upstream_header_timeout_seconds': number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
@@ -164,6 +167,8 @@ const buildFormDefaults = (
     retry_backoff_milliseconds:
       defaults['general_setting.retry_backoff_milliseconds'] ??
       '100,300,800,1600',
+    upstream_header_timeout_seconds:
+      defaults['general_setting.upstream_header_timeout_seconds'] ?? 0,
   },
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
@@ -191,6 +196,8 @@ const normalizeDefaults = (
   'general_setting.retry_backoff_milliseconds':
     defaults['general_setting.retry_backoff_milliseconds'] ??
     '100,300,800,1600',
+  'general_setting.upstream_header_timeout_seconds':
+    defaults['general_setting.upstream_header_timeout_seconds'] ?? 0,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -218,6 +225,8 @@ const normalizeFormValues = (
   RetryTimes: values.RetryTimes,
   'general_setting.retry_backoff_milliseconds':
     values.general_setting.retry_backoff_milliseconds.trim(),
+  'general_setting.upstream_header_timeout_seconds':
+    values.general_setting.upstream_header_timeout_seconds,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
@@ -356,6 +365,40 @@ export function RoutingReliabilitySection({
                             {t('Normalized:')} {autoRetryParsed.normalized}
                           </span>
                         )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='general_setting.upstream_header_timeout_seconds'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Upstream header timeout (seconds)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0}
+                        className='w-24'
+                        value={
+                          field.value === undefined || field.value === null
+                            ? ''
+                            : String(field.value)
+                        }
+                        onChange={(event) => field.onChange(event.target.value)}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'How long a streaming attempt waits for upstream response headers before it is cancelled and retried. 0 disables the deadline. Set this above the slowest model first-token time, otherwise healthy slow upstreams are turned into 504 errors.'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

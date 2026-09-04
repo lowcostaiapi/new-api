@@ -41,7 +41,10 @@ func TestExecuteRelayHTTPRequest_HeaderTimeoutReturnsRetryableGatewayTimeout(t *
 	var relayErr *types.NewAPIError
 	require.ErrorAs(t, err, &relayErr)
 	assert.Equal(t, http.StatusGatewayTimeout, relayErr.StatusCode)
-	assert.Equal(t, types.ErrorCodeChannelResponseTimeExceeded, relayErr.GetErrorCode())
+	assert.Equal(t, types.ErrorCodeUpstreamHeaderTimeout, relayErr.GetErrorCode())
+	// A header timeout says nothing about channel health, so it must not be a
+	// "channel:" error: IsChannelError would auto-disable the channel.
+	assert.False(t, types.IsChannelError(relayErr))
 	assert.False(t, c.Writer.Written())
 	assert.Empty(t, recorder.Header().Get("Content-Type"))
 	assert.Empty(t, recorder.Body.String())

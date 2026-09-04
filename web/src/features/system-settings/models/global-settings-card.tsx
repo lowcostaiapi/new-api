@@ -404,7 +404,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.'
+                    'Delay before the first keep-alive ping, measured from the start of the request.'
                   )}
                 </FormDescription>
                 <FormMessage />
