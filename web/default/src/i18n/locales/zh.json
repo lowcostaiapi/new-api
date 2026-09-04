@@ -2602,6 +2602,7 @@
     "Maximum tokens including hidden reasoning tokens": "最大 token 数（含隐藏的推理 token）",
     "Maximum tokens per response": "单次响应最大 token 数",
     "Maximum tokens per user": "每个用户的最大令牌数",
+    "Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.": "等待上游响应头的最长时间，超时后将重试。收到成功响应头后，会在此期限内发送首次保活 Ping。",
     "maxRequests ≥ 0, maxSuccess ≥ 1, both ≤ 2,147,483,647": "maxRequests ≥ 0, maxSuccess ≥ 1，两者均 ≤ 2,147,483,647",
     "May be used for training by upstream provider": "可能被上游提供商用于训练",
     "Media pricing": "媒体定价",

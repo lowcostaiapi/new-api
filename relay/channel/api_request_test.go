@@ -1,66 +1,88 @@
 package channel
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type pingNotifyWriter struct {
-	header http.Header
-	writes chan string
-	mu     sync.Mutex
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
-func (w *pingNotifyWriter) Header() http.Header {
-	return w.header
-}
-
-func (w *pingNotifyWriter) WriteHeader(_ int) {}
-
-func (w *pingNotifyWriter) Write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.writes <- string(data)
-	return len(data), nil
-}
-
-func (w *pingNotifyWriter) Flush() {}
-
-func TestStartPingKeepAliveUsesFirstDelayBeforeSteadyInterval(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := &pingNotifyWriter{
-		header: make(http.Header),
-		writes: make(chan string, 2),
-	}
-	c, _ := gin.CreateTestContext(w)
+func TestExecuteRelayHTTPRequest_HeaderTimeoutReturnsRetryableGatewayTimeout(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	req, err := http.NewRequest(http.MethodPost, "https://upstream.example/v1/responses", nil)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{}
 
-	stop, done := startPingKeepAlive(c, 80*time.Millisecond, time.Second)
-	t.Cleanup(func() {
-		stop()
-		<-done
-	})
+	resp, err := executeRelayHTTPRequest(c, client, req, info, 10*time.Millisecond)
 
+	require.Nil(t, resp)
+	require.ErrorIs(t, err, errUpstreamHeaderTimeout)
+	var relayErr *types.NewAPIError
+	require.ErrorAs(t, err, &relayErr)
+	assert.Equal(t, http.StatusGatewayTimeout, relayErr.StatusCode)
+	assert.Equal(t, types.ErrorCodeChannelResponseTimeExceeded, relayErr.GetErrorCode())
+	assert.False(t, c.Writer.Written())
+	assert.Empty(t, recorder.Header().Get("Content-Type"))
+	assert.Empty(t, recorder.Body.String())
+}
+
+func TestExecuteRelayHTTPRequest_HeaderSuccessKeepsBodyReadable(t *testing.T) {
+	requestContextDone := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		go func() {
+			<-req.Context().Done()
+			close(requestContextDone)
+		}()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("stream body")),
+			Request:    req,
+		}, nil
+	})}
+	req, err := http.NewRequest(http.MethodPost, "https://upstream.example/v1/responses", nil)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{}
+
+	resp, err := executeRelayHTTPRequest(c, client, req, info, time.Second)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, info.UpstreamHeaderTime.IsZero())
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "stream body", string(body))
+	require.NoError(t, resp.Body.Close())
 	select {
-	case data := <-w.writes:
-		t.Fatalf("ping arrived before first delay: %q", data)
-	case <-time.After(20 * time.Millisecond):
+	case <-requestContextDone:
+	case <-time.After(time.Second):
+		t.Fatal("request context was not canceled when response body closed")
 	}
-
-	select {
-	case data := <-w.writes:
-		assert.Equal(t, ": PING\n\n", data)
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out waiting for first ping")
-	}
+	assert.NoError(t, context.Cause(req.Context()))
 }
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {

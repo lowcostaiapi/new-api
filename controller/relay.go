@@ -226,7 +226,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.LastError = newAPIError
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-
 		// 每次失败尝试都记入重试轨迹，随 admin_info 落日志：重试成功后
 		// 首跳错误不再有独立的失败日志，看板要靠它归因渠道硬错。
 		trailAny, _ := c.Get("retry_errors")
@@ -247,7 +246,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if !willRetry {
 			break
 		}
-		if retryParam.GetRetry() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
+		if retryParam.GetAttempt() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
 			// 亲和粘滞的首跳直接用了粘住的渠道，没有消耗优先级档：不重置的话
 			// 最高档渠道永远不在重试候选里，粘在低档渠道的会话只能一路向更
 			// 低档漂。重置后从第一档选起，已试过的渠道由 getChannel 跳过。

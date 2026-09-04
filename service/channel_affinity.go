@@ -652,6 +652,97 @@ func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	return meta.SkipRetry
 }
 
+func channelAffinityFailureEscapeMaxFallbacks(c *gin.Context) int {
+	if c != nil {
+		if maxFallbacks := c.GetInt(ginKeyChannelAffinityFallbackMax); maxFallbacks > 0 {
+			return maxFallbacks
+		}
+		if meta, ok := getChannelAffinityMeta(c); ok && meta.FailureEscapeMaxFallbacks > 0 {
+			return meta.FailureEscapeMaxFallbacks
+		}
+	}
+	return operation_setting.DefaultChannelAffinityFailureEscapeMaxFallbacks
+}
+
+func updateChannelAffinityFailureEscapeLogInfo(c *gin.Context, maxFallbacks int, count int) {
+	if c == nil {
+		return
+	}
+	if anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
+		if info, ok := anyInfo.(map[string]interface{}); ok {
+			info["failure_escape_max_fallbacks"] = maxFallbacks
+			info["failure_escape_count"] = count
+		}
+	}
+}
+
+func TryEscapeChannelAffinityFailure(c *gin.Context, statusCode int, retryTimes int) bool {
+	if c == nil || retryTimes <= 0 || !ShouldSkipRetryAfterChannelAffinityFailure(c) {
+		return false
+	}
+	if c.Writer != nil && c.Writer.Written() {
+		return false
+	}
+	switch statusCode {
+	case 502, 503, 504, 524:
+	default:
+		return false
+	}
+	if HasEscapedChannelAffinityFailure(c) {
+		return false
+	}
+
+	maxFallbacks := channelAffinityFailureEscapeMaxFallbacks(c)
+	if statusCode == 504 || statusCode == 524 {
+		maxFallbacks = 1
+	}
+	if maxFallbacks <= 0 {
+		return false
+	}
+
+	c.Set(ginKeyChannelAffinityFallbackMax, maxFallbacks)
+	c.Set(ginKeyChannelAffinityEscaped, true)
+	c.Set(ginKeyChannelAffinityFallbackCount, 1)
+	ClearCurrentChannelAffinityCache(c)
+	c.Set(ginKeyChannelAffinitySkipRetry, false)
+	updateChannelAffinityFailureEscapeLogInfo(c, maxFallbacks, 1)
+	if anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
+		if info, ok := anyInfo.(map[string]interface{}); ok {
+			info["failure_escape"] = true
+			info["failure_escape_status_code"] = statusCode
+		}
+	}
+	return true
+}
+
+func ConsumeChannelAffinityFailureFallback(c *gin.Context, statusCode int, retryTimes int) bool {
+	if retryTimes <= 0 {
+		return false
+	}
+	if !HasEscapedChannelAffinityFailure(c) {
+		return true
+	}
+
+	maxFallbacks := channelAffinityFailureEscapeMaxFallbacks(c)
+	count := c.GetInt(ginKeyChannelAffinityFallbackCount)
+	if (statusCode == 504 || statusCode == 524) && maxFallbacks > 1 {
+		maxFallbacks = 1
+		c.Set(ginKeyChannelAffinityFallbackMax, maxFallbacks)
+		updateChannelAffinityFailureEscapeLogInfo(c, maxFallbacks, count)
+	}
+	if count >= maxFallbacks {
+		return false
+	}
+
+	count++
+	c.Set(ginKeyChannelAffinityFallbackCount, count)
+	updateChannelAffinityFailureEscapeLogInfo(c, maxFallbacks, count)
+	return true
+}
+
+func HasEscapedChannelAffinityFailure(c *gin.Context) bool {
+	return c != nil && c.GetBool(ginKeyChannelAffinityEscaped)
+}
 func ClearCurrentChannelAffinityCache(c *gin.Context) bool {
 	if c == nil {
 		return false
