@@ -2224,6 +2224,7 @@
     "How frequently the system checks auto-disabled channels for recovery": "自動無効化されたチャネルの復旧を確認する頻度",
     "How frequently the system tests all channels": "システムがすべてのチャネルをテストする頻度",
     "How It Works": "仕組み",
+    "How long a streaming attempt waits for upstream response headers before it is canceled and retried. Set to 0 to disable; too-low values turn healthy slow upstreams into 504 errors.": "ストリーミング試行でアップストリームの応答ヘッダーを待つ最大時間です。超過すると中止して再試行します。0 で無効化します。短すぎる値は正常でも遅いアップストリームを 504 エラーにします。",
     "How model mapping works": "モデルマッピングの仕組み",
     "How much to charge for each US dollar of balance (Epay)": "残高の 1 米ドルあたりに請求する金額 (Epay)",
     "How this model name should match requests": "このモデル名がリクエストとどのように一致すべきか",

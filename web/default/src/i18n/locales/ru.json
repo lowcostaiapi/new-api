@@ -2224,6 +2224,7 @@
     "How frequently the system checks auto-disabled channels for recovery": "Как часто система проверяет автоматически отключенные каналы для восстановления",
     "How frequently the system tests all channels": "Как часто система тестирует все каналы",
     "How It Works": "Как это работает",
+    "How long a streaming attempt waits for upstream response headers before it is canceled and retried. Set to 0 to disable; too-low values turn healthy slow upstreams into 504 errors.": "Время ожидания заголовков вышестоящего сервера перед отменой и повтором потокового запроса. Укажите 0, чтобы отключить. Слишком малое значение превратит медленные исправные ответы в ошибки 504.",
     "How model mapping works": "Как работает сопоставление моделей",
     "How much to charge for each US dollar of balance (Epay)": "Сколько взимать за каждый доллар США баланса (Epay)",
     "How this model name should match requests": "Как это имя модели должно соответствовать запросам",

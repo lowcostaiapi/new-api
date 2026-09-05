@@ -2224,6 +2224,7 @@
     "How frequently the system checks auto-disabled channels for recovery": "系统检查自动禁用渠道是否可恢复的频率",
     "How frequently the system tests all channels": "系统测试所有渠道的频率",
     "How It Works": "工作流程",
+    "How long a streaming attempt waits for upstream response headers before it is canceled and retried. Set to 0 to disable; too-low values turn healthy slow upstreams into 504 errors.": "流式请求等待上游响应头的最长时间，超时后会取消并重试。设为 0 可禁用；设置过低会使健康但响应较慢的上游返回 504 错误。",
     "How model mapping works": "模型映射如何工作",
     "How much to charge for each US dollar of balance (Epay)": "每美元余额（Epay）的收费金额",
     "How this model name should match requests": "此模型名称应如何匹配请求",

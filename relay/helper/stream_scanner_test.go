@@ -97,6 +97,8 @@ func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 	})
 
 	assert.False(t, called.Load(), "handler should not be called for empty body")
+	assert.True(t, c.Writer.Written())
+	assert.Equal(t, "text/event-stream", c.Writer.Header().Get("Content-Type"))
 }
 
 func TestStreamScannerHandler_1000Chunks(t *testing.T) {

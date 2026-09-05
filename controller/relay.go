@@ -188,8 +188,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
-			service.RecordRelayErrorLog(c, channelErr)
+			// If a retry exhausted the candidate pool, retain the upstream error
+			// from the actual attempt instead of replacing it with a routing 503.
+			if newAPIError == nil {
+				newAPIError = channelErr
+				service.RecordRelayErrorLog(c, channelErr)
+			}
 			break
 		}
 
@@ -246,12 +250,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if !willRetry {
 			break
 		}
-		if retryParam.GetAttempt() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
-			// 亲和粘滞的首跳直接用了粘住的渠道，没有消耗优先级档：不重置的话
-			// 最高档渠道永远不在重试候选里，粘在低档渠道的会话只能一路向更
-			// 低档漂。重置后从第一档选起，已试过的渠道由 getChannel 跳过。
-			retryParam.ResetRetryNextTry()
-		}
+		// MarkChannelFailed leaves an exclusion set, and the selector restarts at
+		// the highest remaining priority whenever that set is non-empty.
 		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
 			break
 		}

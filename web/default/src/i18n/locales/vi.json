@@ -2224,6 +2224,7 @@
     "How frequently the system checks auto-disabled channels for recovery": "Tần suất hệ thống kiểm tra các kênh bị tự động vô hiệu hóa để khôi phục",
     "How frequently the system tests all channels": "Tần suất hệ thống kiểm tra tất cả các kênh là bao nhiêu?",
     "How It Works": "Cách hoạt động",
+    "How long a streaming attempt waits for upstream response headers before it is canceled and retried. Set to 0 to disable; too-low values turn healthy slow upstreams into 504 errors.": "Thời gian chờ header phản hồi từ thượng nguồn trước khi hủy và thử lại yêu cầu luồng. Đặt thành 0 để tắt; giá trị quá thấp sẽ biến thượng nguồn chậm nhưng ổn định thành lỗi 504.",
     "How model mapping works": "Cách hoạt động của ánh xạ mô hình",
     "How much to charge for each US dollar of balance (Epay)": "Tính phí bao nhiêu cho mỗi đô la Mỹ số dư (Epay)",
     "How this model name should match requests": "Tên mô hình này nên khớp với các yêu cầu như thế nào",
