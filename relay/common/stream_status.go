@@ -19,7 +19,6 @@ const (
 	StreamEndReasonEOF         StreamEndReason = "eof"
 	StreamEndReasonPanic       StreamEndReason = "panic"
 	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
-	StreamEndReasonHeaderFlush StreamEndReason = "header_flush_fail"
 )
 
 const maxStreamErrorEntries = 20

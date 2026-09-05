@@ -97,7 +97,7 @@ func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 	})
 
 	assert.False(t, called.Load(), "handler should not be called for empty body")
-	assert.True(t, c.Writer.Written())
+	assert.False(t, c.Writer.Written(), "an empty upstream stream must leave the response uncommitted")
 	assert.Equal(t, "text/event-stream", c.Writer.Header().Get("Content-Type"))
 }
 

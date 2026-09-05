@@ -140,14 +140,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	scanner.Split(bufio.ScanLines)
 	copyCodexSSEHeaders(c, resp)
 	SetEventStreamHeaders(c)
-	// Upstream has already returned an accepted streaming response, so committing
-	// the downstream SSE headers here cannot mask a retryable upstream status.
-	// Flushing now gives proxies and clients a prompt TTFB before the first data.
-	if err := FlushWriter(c); err != nil {
-		logger.LogError(c, "flush event stream headers failed: "+err.Error())
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHeaderFlush, err)
-		return
-	}
+	// HTTP 200 can still carry an initial SSE error. Leave headers uncommitted
+	// so adaptors can reject it and retry; data writers and keepalive pings flush
+	// when they actually produce downstream output.
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
