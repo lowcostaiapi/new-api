@@ -252,7 +252,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		// MarkChannelFailed leaves an exclusion set, and the selector restarts at
 		// the highest remaining priority whenever that set is non-empty.
-		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
+		if !waitForRelayRetry(c, retryParam.GetRetry()) {
 			break
 		}
 	}
