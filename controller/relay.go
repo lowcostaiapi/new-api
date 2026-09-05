@@ -291,7 +291,10 @@ func writeRelayHTTPError(c *gin.Context, relayFormat types.RelayFormat, relayErr
 	})
 }
 
-const maxRelayRetryBackoff = 2 * time.Second
+const (
+	defaultMaxRelayRetryBackoff  = 2 * time.Second
+	absoluteMaxRelayRetryBackoff = 30 * time.Second
+)
 
 var defaultRelayRetryBackoff = []time.Duration{
 	100 * time.Millisecond,
@@ -304,20 +307,26 @@ func configuredRelayRetryBackoff(retryIndex int) time.Duration {
 	if retryIndex < 0 {
 		retryIndex = 0
 	}
+	maxBackoff := configuredMaxRelayRetryBackoff()
 	delays := make([]time.Duration, 0, len(defaultRelayRetryBackoff))
 	for _, raw := range strings.Split(operation_setting.GetGeneralSetting().RetryBackoffMilliseconds, ",") {
 		milliseconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 		if err != nil || milliseconds < 0 {
 			continue
 		}
-		delay := maxRelayRetryBackoff
-		if milliseconds < maxRelayRetryBackoff.Milliseconds() {
+		delay := maxBackoff
+		if milliseconds < maxBackoff.Milliseconds() {
 			delay = time.Duration(milliseconds) * time.Millisecond
 		}
 		delays = append(delays, delay)
 	}
 	if len(delays) == 0 {
-		delays = defaultRelayRetryBackoff
+		for _, delay := range defaultRelayRetryBackoff {
+			if delay > maxBackoff {
+				delay = maxBackoff
+			}
+			delays = append(delays, delay)
+		}
 	}
 	if retryIndex >= len(delays) {
 		retryIndex = len(delays) - 1
@@ -325,7 +334,18 @@ func configuredRelayRetryBackoff(retryIndex int) time.Duration {
 	return delays[retryIndex]
 }
 
-func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+func configuredMaxRelayRetryBackoff() time.Duration {
+	milliseconds := operation_setting.GetGeneralSetting().RetryBackoffMaxMilliseconds
+	if milliseconds <= 0 {
+		return defaultMaxRelayRetryBackoff
+	}
+	if milliseconds >= int(absoluteMaxRelayRetryBackoff/time.Millisecond) {
+		return absoluteMaxRelayRetryBackoff
+	}
+	return time.Duration(milliseconds) * time.Millisecond
+}
+
+func parseRetryAfter(value string, now time.Time, maxDelay time.Duration) (time.Duration, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0, false
@@ -334,8 +354,8 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 		if seconds < 0 {
 			return 0, false
 		}
-		if seconds >= int64(maxRelayRetryBackoff/time.Second) {
-			return maxRelayRetryBackoff, true
+		if seconds > int64(maxDelay/time.Second) {
+			return maxDelay, true
 		}
 		return time.Duration(seconds) * time.Second, true
 	}
@@ -347,8 +367,8 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 	if delay < 0 {
 		delay = 0
 	}
-	if delay > maxRelayRetryBackoff {
-		delay = maxRelayRetryBackoff
+	if delay > maxDelay {
+		delay = maxDelay
 	}
 	return delay, true
 }
@@ -359,7 +379,7 @@ func relayRetryDelay(c *gin.Context, retryIndex int, now time.Time) time.Duratio
 	if c != nil {
 		retryAfterValue = common.GetContextKeyString(c, constant.ContextKeyUpstreamRetryAfter)
 	}
-	if retryAfter, ok := parseRetryAfter(retryAfterValue, now); ok {
+	if retryAfter, ok := parseRetryAfter(retryAfterValue, now, configuredMaxRelayRetryBackoff()); ok {
 		delay = retryAfter
 	}
 	return delay
@@ -682,6 +702,9 @@ func RelayTask(c *gin.Context) {
 		}
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+			break
+		}
+		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
 			break
 		}
 	}

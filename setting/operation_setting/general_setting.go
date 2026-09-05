@@ -13,12 +13,13 @@ const (
 type GeneralSetting struct {
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
-	// PingFirstDelaySeconds is both the per-attempt upstream header deadline and
-	// the first downstream ping deadline. Twenty seconds leaves fast 503/429
-	// retries uncommitted while staying well below common proxy idle timeouts.
-	PingFirstDelaySeconds    int    `json:"ping_first_delay_seconds"`
-	PingIntervalSeconds      int    `json:"ping_interval_seconds"`
-	RetryBackoffMilliseconds string `json:"retry_backoff_milliseconds"`
+	// PingFirstDelaySeconds starts only after upstream response headers arrive.
+	// This preserves the uncommitted response window used for channel retries.
+	PingFirstDelaySeconds        int    `json:"ping_first_delay_seconds"`
+	PingIntervalSeconds          int    `json:"ping_interval_seconds"`
+	UpstreamHeaderTimeoutSeconds int    `json:"upstream_header_timeout_seconds"`
+	RetryBackoffMilliseconds     string `json:"retry_backoff_milliseconds"`
+	RetryBackoffMaxMilliseconds  int    `json:"retry_backoff_max_milliseconds"`
 	// 当前站点额度展示类型：USD / CNY / TOKENS
 	QuotaDisplayType string `json:"quota_display_type"`
 	// 自定义货币符号，用于 CUSTOM 展示类型
@@ -29,14 +30,16 @@ type GeneralSetting struct {
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	DocsLink:                   "https://docs.newapi.pro",
-	PingIntervalEnabled:        true,
-	PingFirstDelaySeconds:      20,
-	PingIntervalSeconds:        10,
-	RetryBackoffMilliseconds:   "100,300,800,1600",
-	QuotaDisplayType:           QuotaDisplayTypeUSD,
-	CustomCurrencySymbol:       "¤",
-	CustomCurrencyExchangeRate: 1.0,
+	DocsLink:                     "https://docs.newapi.pro",
+	PingIntervalEnabled:          true,
+	PingFirstDelaySeconds:        20,
+	PingIntervalSeconds:          10,
+	UpstreamHeaderTimeoutSeconds: 20,
+	RetryBackoffMilliseconds:     "100,300,800,1600",
+	RetryBackoffMaxMilliseconds:  2000,
+	QuotaDisplayType:             QuotaDisplayTypeUSD,
+	CustomCurrencySymbol:         "¤",
+	CustomCurrencyExchangeRate:   1.0,
 }
 
 func init() {

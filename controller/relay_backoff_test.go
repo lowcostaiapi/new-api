@@ -20,8 +20,13 @@ import (
 func TestWaitForRelayRetryStopsWhenRequestContextIsCanceled(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldBackoff := setting.RetryBackoffMilliseconds
+	oldMaxBackoff := setting.RetryBackoffMaxMilliseconds
 	setting.RetryBackoffMilliseconds = "2000"
-	t.Cleanup(func() { setting.RetryBackoffMilliseconds = oldBackoff })
+	setting.RetryBackoffMaxMilliseconds = 2000
+	t.Cleanup(func() {
+		setting.RetryBackoffMilliseconds = oldBackoff
+		setting.RetryBackoffMaxMilliseconds = oldMaxBackoff
+	})
 
 	requestCtx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -32,27 +37,60 @@ func TestWaitForRelayRetryStopsWhenRequestContextIsCanceled(t *testing.T) {
 }
 
 func TestParseRetryAfterCapsServerDelay(t *testing.T) {
-	delay, ok := parseRetryAfter("30", time.Now())
+	delay, ok := parseRetryAfter("30", time.Now(), 1500*time.Millisecond)
 	require.True(t, ok)
-	assert.Equal(t, maxRelayRetryBackoff, delay)
+	assert.Equal(t, 1500*time.Millisecond, delay)
 }
 
 func TestRelayRetryDelayUsesConfiguredSchedule(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldBackoff := setting.RetryBackoffMilliseconds
+	oldMaxBackoff := setting.RetryBackoffMaxMilliseconds
 	setting.RetryBackoffMilliseconds = "100,300,800"
-	t.Cleanup(func() { setting.RetryBackoffMilliseconds = oldBackoff })
+	setting.RetryBackoffMaxMilliseconds = 2000
+	t.Cleanup(func() {
+		setting.RetryBackoffMilliseconds = oldBackoff
+		setting.RetryBackoffMaxMilliseconds = oldMaxBackoff
+	})
 
 	assert.Equal(t, 100*time.Millisecond, configuredRelayRetryBackoff(0))
 	assert.Equal(t, 300*time.Millisecond, configuredRelayRetryBackoff(1))
 	assert.Equal(t, 800*time.Millisecond, configuredRelayRetryBackoff(2))
 }
 
+func TestConfiguredMaxRelayRetryBackoffEnforcesSafetyLimit(t *testing.T) {
+	setting := operation_setting.GetGeneralSetting()
+	oldMaxBackoff := setting.RetryBackoffMaxMilliseconds
+	setting.RetryBackoffMaxMilliseconds = 60_000
+	t.Cleanup(func() { setting.RetryBackoffMaxMilliseconds = oldMaxBackoff })
+
+	assert.Equal(t, absoluteMaxRelayRetryBackoff, configuredMaxRelayRetryBackoff())
+}
+
 func TestRelayRetryDelayPrefersRetryAfterHeader(t *testing.T) {
+	setting := operation_setting.GetGeneralSetting()
+	oldMaxBackoff := setting.RetryBackoffMaxMilliseconds
+	setting.RetryBackoffMaxMilliseconds = 2000
+	t.Cleanup(func() { setting.RetryBackoffMaxMilliseconds = oldMaxBackoff })
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	common.SetContextKey(c, constant.ContextKeyUpstreamRetryAfter, "1")
 
 	assert.Equal(t, time.Second, relayRetryDelay(c, 0, time.Now()))
+}
+
+func TestWaitForRelayRetryWithRetryAfterStopsWhenTaskContextIsCanceled(t *testing.T) {
+	setting := operation_setting.GetGeneralSetting()
+	oldMaxBackoff := setting.RetryBackoffMaxMilliseconds
+	setting.RetryBackoffMaxMilliseconds = 2000
+	t.Cleanup(func() { setting.RetryBackoffMaxMilliseconds = oldMaxBackoff })
+
+	requestContext, cancel := context.WithCancel(context.Background())
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil).WithContext(requestContext)
+	common.SetContextKey(c, constant.ContextKeyUpstreamRetryAfter, "2")
+	cancel()
+
+	assert.False(t, waitForRelayRetry(c, 0))
 }
 
 func TestWriteRelayHTTPErrorRestoresStandardJSONResponse(t *testing.T) {

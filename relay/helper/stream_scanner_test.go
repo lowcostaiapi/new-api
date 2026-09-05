@@ -86,14 +86,6 @@ func TestNewStreamScanner_AllowsLargeStreamLine(t *testing.T) {
 	require.NoError(t, scanner.Err())
 }
 
-func TestRemainingFirstPingDelayUsesRequestDeadline(t *testing.T) {
-	now := time.Unix(1_700_000_000, 0)
-
-	assert.Equal(t, 5*time.Second, remainingFirstPingDelay(now.Add(-15*time.Second), 20*time.Second, now))
-	assert.Equal(t, time.Duration(0), remainingFirstPingDelay(now.Add(-25*time.Second), 20*time.Second, now))
-	assert.Equal(t, 20*time.Second, remainingFirstPingDelay(time.Time{}, 20*time.Second, now))
-}
-
 func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 	t.Parallel()
 

@@ -17,26 +17,7 @@ func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 	if c == nil || err == nil || !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
 		return
 	}
-	other := map[string]interface{}{
-		"error_type":   err.GetErrorType(),
-		"error_code":   err.GetErrorCode(),
-		"status_code":  err.StatusCode,
-		"channel_id":   c.GetInt("channel_id"),
-		"channel_name": c.GetString("channel_name"),
-		"channel_type": c.GetInt("channel_type"),
-	}
-	if c.Request != nil && c.Request.URL != nil {
-		other["request_path"] = c.Request.URL.Path
-	}
-	adminInfo := map[string]interface{}{
-		"use_channel": c.GetStringSlice("use_channel"),
-	}
-	if common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey) {
-		adminInfo["is_multi_key"] = true
-		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
-	}
-	AppendChannelAffinityAdminInfo(c, adminInfo)
-	other["admin_info"] = adminInfo
+	other := buildRelayErrorLogOther(c, err)
 
 	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 	if startTime.IsZero() {
@@ -45,7 +26,7 @@ func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 	model.RecordErrorLog(
 		c,
 		c.GetInt("id"),
-		c.GetInt("channel_id"),
+		other["channel_id"].(int),
 		c.GetString("original_model"),
 		c.GetString("token_name"),
 		err.MaskSensitiveErrorWithStatusCode(),
@@ -55,4 +36,42 @@ func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 		c.GetString("group"),
 		other,
 	)
+}
+
+func buildRelayErrorLogOther(c *gin.Context, err *types.NewAPIError) map[string]interface{} {
+	usedChannels := c.GetStringSlice("use_channel")
+	attemptedChannel := len(usedChannels) > 0
+	channelID := c.GetInt("channel_id")
+	channelName := c.GetString("channel_name")
+	channelType := c.GetInt("channel_type")
+	if !attemptedChannel {
+		channelID = 0
+		channelName = ""
+		channelType = 0
+	}
+	other := map[string]interface{}{
+		"error_type":        err.GetErrorType(),
+		"error_code":        err.GetErrorCode(),
+		"status_code":       err.StatusCode,
+		"attempted_channel": attemptedChannel,
+		"channel_id":        channelID,
+		"channel_name":      channelName,
+		"channel_type":      channelType,
+	}
+	if err.GetErrorCode() == types.ErrorCodeGetChannelFailed {
+		other["route_failure"] = true
+	}
+	if c.Request != nil && c.Request.URL != nil {
+		other["request_path"] = c.Request.URL.Path
+	}
+	adminInfo := map[string]interface{}{
+		"use_channel": usedChannels,
+	}
+	if common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey) {
+		adminInfo["is_multi_key"] = true
+		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
+	}
+	AppendChannelAffinityAdminInfo(c, adminInfo)
+	other["admin_info"] = adminInfo
+	return other
 }

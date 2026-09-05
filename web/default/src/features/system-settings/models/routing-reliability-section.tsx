@@ -71,6 +71,7 @@ const routingReliabilitySchema = z
     RetryTimes: z.coerce.number().min(0).max(10),
     general_setting: z.object({
       retry_backoff_milliseconds: z.string(),
+      retry_backoff_max_milliseconds: z.coerce.number().int().min(1).max(30000),
     }),
     ChannelDisableThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
@@ -122,6 +123,7 @@ type RoutingReliabilitySectionProps = {
   defaultValues: {
     RetryTimes: number
     'general_setting.retry_backoff_milliseconds': string
+    'general_setting.retry_backoff_max_milliseconds': number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
@@ -141,6 +143,7 @@ function normalizeLineEndings(value: string) {
 type NormalizedRoutingReliabilityValues = {
   RetryTimes: number
   'general_setting.retry_backoff_milliseconds': string
+  'general_setting.retry_backoff_max_milliseconds': number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
@@ -164,6 +167,8 @@ const buildFormDefaults = (
     retry_backoff_milliseconds:
       defaults['general_setting.retry_backoff_milliseconds'] ??
       '100,300,800,1600',
+    retry_backoff_max_milliseconds:
+      defaults['general_setting.retry_backoff_max_milliseconds'] ?? 2000,
   },
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
@@ -191,6 +196,8 @@ const normalizeDefaults = (
   'general_setting.retry_backoff_milliseconds':
     defaults['general_setting.retry_backoff_milliseconds'] ??
     '100,300,800,1600',
+  'general_setting.retry_backoff_max_milliseconds':
+    defaults['general_setting.retry_backoff_max_milliseconds'] ?? 2000,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -218,6 +225,8 @@ const normalizeFormValues = (
   RetryTimes: values.RetryTimes,
   'general_setting.retry_backoff_milliseconds':
     values.general_setting.retry_backoff_milliseconds.trim(),
+  'general_setting.retry_backoff_max_milliseconds':
+    values.general_setting.retry_backoff_max_milliseconds,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
@@ -377,7 +386,33 @@ export function RoutingReliabilitySection({
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Comma-separated delays between retries. Invalid values are ignored and every delay is capped at 2000 ms.'
+                        'Comma-separated delays between retries. Invalid values are ignored and each delay is capped by the maximum retry backoff.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='general_setting.retry_backoff_max_milliseconds'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Maximum retry backoff (milliseconds)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={30000}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Caps configured retry delays and upstream Retry-After values (1-30000 ms).'
                       )}
                     </FormDescription>
                     <FormMessage />

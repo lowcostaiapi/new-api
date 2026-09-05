@@ -62,6 +62,8 @@ const MODELS_SECTIONS = [
               settings['general_setting.ping_first_delay_seconds'],
             ping_interval_seconds:
               settings['general_setting.ping_interval_seconds'],
+            upstream_header_timeout_seconds:
+              settings['general_setting.upstream_header_timeout_seconds'],
           },
         }}
       />
@@ -76,6 +78,8 @@ const MODELS_SECTIONS = [
           RetryTimes: settings.RetryTimes,
           'general_setting.retry_backoff_milliseconds':
             settings['general_setting.retry_backoff_milliseconds'],
+          'general_setting.retry_backoff_max_milliseconds':
+            settings['general_setting.retry_backoff_max_milliseconds'],
           ChannelDisableThreshold: settings.ChannelDisableThreshold,
           AutomaticDisableChannelEnabled:
             settings.AutomaticDisableChannelEnabled,
