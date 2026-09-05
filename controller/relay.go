@@ -275,6 +275,10 @@ func writeRelayHTTPError(c *gin.Context, relayFormat types.RelayFormat, relayErr
 	if c == nil || relayErr == nil {
 		return
 	}
+	// A committed stream cannot be replaced by an HTTP JSON error response.
+	if c.Writer != nil && c.Writer.Written() {
+		return
+	}
 	// SetEventStreamHeaders intentionally does not flush. Restore normal HTTP
 	// headers while the response is still uncommitted so fast failures remain
 	// machine-readable JSON responses instead of empty SSE streams.

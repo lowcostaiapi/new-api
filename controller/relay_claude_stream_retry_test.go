@@ -62,6 +62,9 @@ func TestClaudeStreamErrorRetryWindow(t *testing.T) {
 				assert.Equal(t, !tc.written, shouldRetry(c, relayErr, 1))
 				assert.False(t, shouldRetry(c, relayErr, 0))
 				if tc.written {
+					before := recorder.Body.String()
+					writeRelayHTTPError(c, format, relayErr)
+					assert.Equal(t, before, recorder.Body.String(), "committed SSE must not receive a raw JSON error tail")
 					assert.Contains(t, recorder.Body.String(), "hello")
 					assert.NotContains(t, recorder.Body.String(), "cpu overloaded")
 					return
