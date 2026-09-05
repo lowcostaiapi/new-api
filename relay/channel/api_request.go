@@ -17,7 +17,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -416,17 +415,18 @@ func (r *cancelOnCloseReadCloser) Close() error {
 // retry. A header timeout instead cancels the attempt while the downstream
 // response is still untouched, so the controller can retry or return JSON.
 func executeRelayHTTPRequest(c *gin.Context, client *http.Client, req *http.Request, info *common.RelayInfo, headerTimeout time.Duration) (*http.Response, error) {
-	requestToSend := req
-	var cancel context.CancelFunc
+	baseContext := req.Context()
+	if c != nil && c.Request != nil {
+		baseContext = c.Request.Context()
+	}
+	requestContext, cancel := context.WithCancel(baseContext)
+	requestToSend := req.Clone(requestContext)
 	var state atomic.Int32
 	var timer *time.Timer
 	if headerTimeout > 0 {
-		requestCtx, cancelRequest := context.WithCancel(req.Context())
-		cancel = cancelRequest
-		requestToSend = req.Clone(requestCtx)
 		timer = time.AfterFunc(headerTimeout, func() {
 			if state.CompareAndSwap(0, 2) {
-				cancelRequest()
+				cancel()
 			}
 		})
 	}
@@ -450,21 +450,17 @@ func executeRelayHTTPRequest(c *gin.Context, client *http.Client, req *http.Requ
 		}
 	}
 	if err != nil {
-		if cancel != nil {
-			cancel()
-		}
+		cancel()
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {
-		if cancel != nil {
-			cancel()
-		}
+		cancel()
 		return nil, errors.New("resp is nil")
 	}
-	if cancel != nil && resp.Body != nil {
+	if resp.Body != nil {
 		resp.Body = &cancelOnCloseReadCloser{ReadCloser: resp.Body, cancel: cancel}
-	} else if cancel != nil {
+	} else {
 		cancel()
 	}
 
@@ -501,11 +497,8 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	headerTimeout := time.Duration(0)
 	generalSettings := operation_setting.GetGeneralSetting()
-	if info.IsStream && generalSettings.PingIntervalEnabled && !info.DisablePing {
-		headerTimeout = time.Duration(generalSettings.PingFirstDelaySeconds) * time.Second
-		if headerTimeout <= 0 {
-			headerTimeout = helper.DefaultPingFirstDelay
-		}
+	if info.IsStream && generalSettings.UpstreamHeaderTimeoutSeconds > 0 {
+		headerTimeout = time.Duration(generalSettings.UpstreamHeaderTimeoutSeconds) * time.Second
 	}
 
 	return executeRelayHTTPRequest(c, client, req, info, headerTimeout)

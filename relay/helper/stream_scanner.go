@@ -47,17 +47,6 @@ func NewStreamScanner(reader io.Reader) *bufio.Scanner {
 	return scanner
 }
 
-func remainingFirstPingDelay(startTime time.Time, configuredDelay time.Duration, now time.Time) time.Duration {
-	if configuredDelay <= 0 || startTime.IsZero() || !now.After(startTime) {
-		return configuredDelay
-	}
-	remaining := configuredDelay - now.Sub(startTime)
-	if remaining < 0 {
-		return 0
-	}
-	return remaining
-}
-
 func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
 	if c == nil || c.Writer == nil || resp == nil {
 		return
@@ -125,14 +114,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	if pingFirstDelay <= 0 {
 		pingFirstDelay = DefaultPingFirstDelay
 	}
-	pingFirstDelay = remainingFirstPingDelay(info.StartTime, pingFirstDelay, time.Now())
 
 	logger.LogDebug(c, "relay timeout seconds: %d", common.RelayTimeout)
 	logger.LogDebug(c, "relay max idle conns: %d", common.RelayMaxIdleConns)
 	logger.LogDebug(c, "relay max idle conns per host: %d", common.RelayMaxIdleConnsPerHost)
 	logger.LogDebug(c, "streaming timeout seconds: %d", int64(streamingTimeout.Seconds()))
 	logger.LogDebug(c, "ping interval seconds: %d", int64(pingInterval.Seconds()))
-	logger.LogDebug(c, "remaining first ping delay milliseconds: %d", pingFirstDelay.Milliseconds())
+	logger.LogDebug(c, "first ping delay milliseconds: %d", pingFirstDelay.Milliseconds())
 
 	cleanup := func() {
 		cleanupOnce.Do(func() {

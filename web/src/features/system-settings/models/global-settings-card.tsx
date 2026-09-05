@@ -97,6 +97,7 @@ const schema = z.object({
     ping_interval_enabled: z.boolean(),
     ping_first_delay_seconds: z.coerce.number().min(1),
     ping_interval_seconds: z.coerce.number().min(1),
+    upstream_header_timeout_seconds: z.coerce.number().min(0),
   }),
 })
 
@@ -110,6 +111,7 @@ type FlatGlobalModelSettings = {
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_first_delay_seconds': number
   'general_setting.ping_interval_seconds': number
+  'general_setting.upstream_header_timeout_seconds': number
 }
 
 const flattenGlobalValues = (
@@ -131,6 +133,8 @@ const flattenGlobalValues = (
     values.general_setting.ping_first_delay_seconds,
   'general_setting.ping_interval_seconds':
     values.general_setting.ping_interval_seconds,
+  'general_setting.upstream_header_timeout_seconds':
+    values.general_setting.upstream_header_timeout_seconds,
 })
 
 function normalizeJsonText(value: string, fallback: string) {
@@ -358,6 +362,38 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
+            name='general_setting.upstream_header_timeout_seconds'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Upstream Header Timeout (seconds)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={0}
+                    className='w-24'
+                    value={
+                      field.value === undefined || field.value === null
+                        ? ''
+                        : String(field.value)
+                    }
+                    onChange={(event) => field.onChange(event.target.value)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Maximum time to wait for upstream response headers before canceling the attempt and retrying another channel. Set to 0 to disable.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
             name='general_setting.ping_interval_enabled'
             render={({ field }) => (
               <SettingsSwitchItem>
@@ -404,7 +440,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Maximum wait for upstream headers before retrying. After successful headers, the first keep-alive ping is sent by this deadline.'
+                    'Delay before the first keep-alive ping after the upstream stream is accepted.'
                   )}
                 </FormDescription>
                 <FormMessage />

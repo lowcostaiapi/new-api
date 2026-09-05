@@ -193,7 +193,9 @@ export type ModelSettings = {
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_first_delay_seconds': number
   'general_setting.ping_interval_seconds': number
+  'general_setting.upstream_header_timeout_seconds': number
   'general_setting.retry_backoff_milliseconds': string
+  'general_setting.retry_backoff_max_milliseconds': number
   'gemini.safety_settings': string
   'gemini.version_settings': string
   'gemini.supported_imagine_models': string

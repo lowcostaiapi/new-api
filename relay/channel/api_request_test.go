@@ -85,6 +85,45 @@ func TestExecuteRelayHTTPRequest_HeaderSuccessKeepsBodyReadable(t *testing.T) {
 	assert.NoError(t, context.Cause(req.Context()))
 }
 
+func TestExecuteRelayHTTPRequest_DownstreamCancellationCancelsHeaderWait(t *testing.T) {
+	requestStarted := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		close(requestStarted)
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	req, err := http.NewRequest(http.MethodPost, "https://upstream.example/v1/responses", nil)
+	require.NoError(t, err)
+	downstreamContext, cancelDownstream := context.WithCancel(context.Background())
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(downstreamContext)
+	info := &relaycommon.RelayInfo{}
+
+	type requestResult struct {
+		response *http.Response
+		err      error
+	}
+	result := make(chan requestResult, 1)
+	go func() {
+		resp, requestErr := executeRelayHTTPRequest(c, client, req, info, time.Hour)
+		result <- requestResult{response: resp, err: requestErr}
+	}()
+	<-requestStarted
+	cancelDownstream()
+
+	select {
+	case got := <-result:
+		require.Nil(t, got.response)
+		var relayErr *types.NewAPIError
+		require.ErrorAs(t, got.err, &relayErr)
+		assert.Equal(t, types.ErrorCodeDoRequestFailed, relayErr.GetErrorCode())
+		assert.False(t, c.Writer.Written())
+	case <-time.After(time.Second):
+		t.Fatal("upstream header wait did not stop after downstream cancellation")
+	}
+}
+
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()
 
