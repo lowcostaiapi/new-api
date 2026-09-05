@@ -704,7 +704,7 @@ func RelayTask(c *gin.Context) {
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
-		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
+		if !waitForRelayRetry(c, retryParam.GetRetry()) {
 			break
 		}
 	}
