@@ -2225,6 +2225,7 @@
     "How frequently the system checks auto-disabled channels for recovery": "Fréquence à laquelle le système vérifie la récupération des canaux désactivés automatiquement",
     "How frequently the system tests all channels": "Fréquence à laquelle le système teste tous les canaux",
     "How It Works": "Comment ça marche",
+    "How long a streaming attempt waits for upstream response headers before it is canceled and retried. Set to 0 to disable; too-low values turn healthy slow upstreams into 504 errors.": "Durée d’attente des en-têtes en amont avant l’annulation et une nouvelle tentative. Définissez 0 pour désactiver ; une valeur trop basse transforme les réponses lentes mais saines en erreurs 504.",
     "How model mapping works": "Fonctionnement du mappage des modèles",
     "How much to charge for each US dollar of balance (Epay)": "Montant à facturer pour chaque dollar US de solde (Epay)",
     "How this model name should match requests": "Comment ce nom de modèle doit correspondre aux requêtes",

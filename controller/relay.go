@@ -187,8 +187,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
-			service.RecordRelayErrorLog(c, channelErr)
+			// If a retry exhausted the candidate pool, retain the upstream error
+			// from the actual attempt instead of replacing it with a routing 503.
+			if newAPIError == nil {
+				newAPIError = channelErr
+				service.RecordRelayErrorLog(c, channelErr)
+			}
 			break
 		}
 
@@ -247,12 +251,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if !willRetry {
 			break
 		}
-		if retryParam.GetAttempt() == 0 && service.ChannelAffinityPinnedFirstAttempt(c) {
-			// An affinity-pinned first attempt did not consume a priority tier.
-			// Restart selection at the highest tier; FailedChannels still excludes
-			// the pinned channel that just failed.
-			retryParam.ResetRetryNextTry()
-		}
+		// MarkChannelFailed leaves an exclusion set, and the selector restarts at
+		// the highest remaining priority whenever that set is non-empty.
 		if !waitForRelayRetry(c, retryParam.GetAttempt()) {
 			break
 		}

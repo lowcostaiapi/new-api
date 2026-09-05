@@ -444,7 +444,7 @@ func executeRelayHTTPRequest(c *gin.Context, client *http.Client, req *http.Requ
 			cancel()
 			return nil, types.NewErrorWithStatusCode(
 				errUpstreamHeaderTimeout,
-				types.ErrorCodeChannelResponseTimeExceeded,
+				types.ErrorCodeUpstreamHeaderTimeout,
 				http.StatusGatewayTimeout,
 			)
 		}
@@ -495,10 +495,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = service.GetHttpClient()
 	}
 
+	// Header waiting is independent of keep-alive pings. A deployment can enable
+	// pings without implicitly arming a request-canceling deadline.
 	headerTimeout := time.Duration(0)
-	generalSettings := operation_setting.GetGeneralSetting()
-	if info.IsStream && generalSettings.UpstreamHeaderTimeoutSeconds > 0 {
-		headerTimeout = time.Duration(generalSettings.UpstreamHeaderTimeoutSeconds) * time.Second
+	if info.IsStream {
+		if seconds := operation_setting.GetGeneralSetting().UpstreamHeaderTimeoutSeconds; seconds > 0 {
+			headerTimeout = time.Duration(seconds) * time.Second
+		}
 	}
 
 	return executeRelayHTTPRequest(c, client, req, info, headerTimeout)

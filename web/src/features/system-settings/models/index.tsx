@@ -31,7 +31,7 @@ const defaultModelSettings: ModelSettings = {
   'general_setting.ping_interval_enabled': true,
   'general_setting.ping_first_delay_seconds': 20,
   'general_setting.ping_interval_seconds': 10,
-  'general_setting.upstream_header_timeout_seconds': 20,
+  'general_setting.upstream_header_timeout_seconds': 0,
   'general_setting.retry_backoff_milliseconds': '100,300,800,1600',
   'general_setting.retry_backoff_max_milliseconds': 2000,
   'gemini.safety_settings': '',

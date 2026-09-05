@@ -15,8 +15,11 @@ type GeneralSetting struct {
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
 	// PingFirstDelaySeconds starts only after upstream response headers arrive.
 	// This preserves the uncommitted response window used for channel retries.
-	PingFirstDelaySeconds        int    `json:"ping_first_delay_seconds"`
-	PingIntervalSeconds          int    `json:"ping_interval_seconds"`
+	PingFirstDelaySeconds int `json:"ping_first_delay_seconds"`
+	PingIntervalSeconds   int `json:"ping_interval_seconds"`
+	// UpstreamHeaderTimeoutSeconds bounds one streaming attempt's wait for
+	// upstream response headers. Zero disables it by default because an overly
+	// aggressive deadline turns healthy slow upstreams into 504 responses.
 	UpstreamHeaderTimeoutSeconds int    `json:"upstream_header_timeout_seconds"`
 	RetryBackoffMilliseconds     string `json:"retry_backoff_milliseconds"`
 	RetryBackoffMaxMilliseconds  int    `json:"retry_backoff_max_milliseconds"`
@@ -34,7 +37,7 @@ var generalSetting = GeneralSetting{
 	PingIntervalEnabled:          true,
 	PingFirstDelaySeconds:        20,
 	PingIntervalSeconds:          10,
-	UpstreamHeaderTimeoutSeconds: 20,
+	UpstreamHeaderTimeoutSeconds: 0,
 	RetryBackoffMilliseconds:     "100,300,800,1600",
 	RetryBackoffMaxMilliseconds:  2000,
 	QuotaDisplayType:             QuotaDisplayTypeUSD,

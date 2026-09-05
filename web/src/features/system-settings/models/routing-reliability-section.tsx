@@ -72,6 +72,7 @@ const routingReliabilitySchema = z
     general_setting: z.object({
       retry_backoff_milliseconds: z.string(),
       retry_backoff_max_milliseconds: z.coerce.number().int().min(1).max(30000),
+      upstream_header_timeout_seconds: z.coerce.number().min(0),
     }),
     ChannelDisableThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
@@ -124,6 +125,7 @@ type RoutingReliabilitySectionProps = {
     RetryTimes: number
     'general_setting.retry_backoff_milliseconds': string
     'general_setting.retry_backoff_max_milliseconds': number
+    'general_setting.upstream_header_timeout_seconds': number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
@@ -144,6 +146,7 @@ type NormalizedRoutingReliabilityValues = {
   RetryTimes: number
   'general_setting.retry_backoff_milliseconds': string
   'general_setting.retry_backoff_max_milliseconds': number
+  'general_setting.upstream_header_timeout_seconds': number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
@@ -169,6 +172,8 @@ const buildFormDefaults = (
       '100,300,800,1600',
     retry_backoff_max_milliseconds:
       defaults['general_setting.retry_backoff_max_milliseconds'] ?? 2000,
+    upstream_header_timeout_seconds:
+      defaults['general_setting.upstream_header_timeout_seconds'] ?? 0,
   },
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
@@ -198,6 +203,8 @@ const normalizeDefaults = (
     '100,300,800,1600',
   'general_setting.retry_backoff_max_milliseconds':
     defaults['general_setting.retry_backoff_max_milliseconds'] ?? 2000,
+  'general_setting.upstream_header_timeout_seconds':
+    defaults['general_setting.upstream_header_timeout_seconds'] ?? 0,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -227,6 +234,8 @@ const normalizeFormValues = (
     values.general_setting.retry_backoff_milliseconds.trim(),
   'general_setting.retry_backoff_max_milliseconds':
     values.general_setting.retry_backoff_max_milliseconds,
+  'general_setting.upstream_header_timeout_seconds':
+    values.general_setting.upstream_header_timeout_seconds,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
@@ -387,6 +396,32 @@ export function RoutingReliabilitySection({
                     <FormDescription>
                       {t(
                         'Comma-separated delays between retries. Invalid values are ignored and each delay is capped by the maximum retry backoff.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='general_setting.upstream_header_timeout_seconds'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Upstream Header Timeout (seconds)')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0}
+                        className='w-24'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'How long a streaming attempt waits for upstream response headers before it is canceled and retried. Set to 0 to disable; too-low values turn healthy slow upstreams into 504 errors.'
                       )}
                     </FormDescription>
                     <FormMessage />
