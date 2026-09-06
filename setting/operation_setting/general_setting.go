@@ -13,7 +13,16 @@ const (
 type GeneralSetting struct {
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
-	PingIntervalSeconds int    `json:"ping_interval_seconds"`
+	// PingFirstDelaySeconds starts only after upstream response headers arrive.
+	// This preserves the uncommitted response window used for channel retries.
+	PingFirstDelaySeconds int `json:"ping_first_delay_seconds"`
+	PingIntervalSeconds   int `json:"ping_interval_seconds"`
+	// UpstreamHeaderTimeoutSeconds bounds one streaming attempt's wait for
+	// upstream response headers. Zero disables it by default because an overly
+	// aggressive deadline turns healthy slow upstreams into 504 responses.
+	UpstreamHeaderTimeoutSeconds int    `json:"upstream_header_timeout_seconds"`
+	RetryBackoffMilliseconds     string `json:"retry_backoff_milliseconds"`
+	RetryBackoffMaxMilliseconds  int    `json:"retry_backoff_max_milliseconds"`
 	// 当前站点额度展示类型：USD / CNY / TOKENS
 	QuotaDisplayType string `json:"quota_display_type"`
 	// 自定义货币符号，用于 CUSTOM 展示类型
@@ -24,12 +33,16 @@ type GeneralSetting struct {
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	DocsLink:                   "https://docs.newapi.pro",
-	PingIntervalEnabled:        false,
-	PingIntervalSeconds:        60,
-	QuotaDisplayType:           QuotaDisplayTypeUSD,
-	CustomCurrencySymbol:       "¤",
-	CustomCurrencyExchangeRate: 1.0,
+	DocsLink:                     "https://docs.newapi.pro",
+	PingIntervalEnabled:          true,
+	PingFirstDelaySeconds:        20,
+	PingIntervalSeconds:          10,
+	UpstreamHeaderTimeoutSeconds: 0,
+	RetryBackoffMilliseconds:     "100,300,800,1600",
+	RetryBackoffMaxMilliseconds:  2000,
+	QuotaDisplayType:             QuotaDisplayTypeUSD,
+	CustomCurrencySymbol:         "¤",
+	CustomCurrencyExchangeRate:   1.0,
 }
 
 func init() {

@@ -58,6 +58,8 @@ const MODELS_SECTIONS = [
           general_setting: {
             ping_interval_enabled:
               settings['general_setting.ping_interval_enabled'],
+            ping_first_delay_seconds:
+              settings['general_setting.ping_first_delay_seconds'],
             ping_interval_seconds:
               settings['general_setting.ping_interval_seconds'],
           },
@@ -72,6 +74,12 @@ const MODELS_SECTIONS = [
       <RoutingReliabilitySection
         defaultValues={{
           RetryTimes: settings.RetryTimes,
+          'general_setting.retry_backoff_milliseconds':
+            settings['general_setting.retry_backoff_milliseconds'],
+          'general_setting.retry_backoff_max_milliseconds':
+            settings['general_setting.retry_backoff_max_milliseconds'],
+          'general_setting.upstream_header_timeout_seconds':
+            settings['general_setting.upstream_header_timeout_seconds'],
           ChannelDisableThreshold: settings.ChannelDisableThreshold,
           AutomaticDisableChannelEnabled:
             settings.AutomaticDisableChannelEnabled,
