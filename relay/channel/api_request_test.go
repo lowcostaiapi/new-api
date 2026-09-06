@@ -1,14 +1,129 @@
 package channel
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestExecuteRelayHTTPRequest_HeaderTimeoutReturnsRetryableGatewayTimeout(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	req, err := http.NewRequest(http.MethodPost, "https://upstream.example/v1/responses", nil)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{}
+
+	resp, err := executeRelayHTTPRequest(c, client, req, info, 10*time.Millisecond)
+
+	require.Nil(t, resp)
+	require.ErrorIs(t, err, errUpstreamHeaderTimeout)
+	var relayErr *types.NewAPIError
+	require.ErrorAs(t, err, &relayErr)
+	assert.Equal(t, http.StatusGatewayTimeout, relayErr.StatusCode)
+	assert.Equal(t, types.ErrorCodeUpstreamHeaderTimeout, relayErr.GetErrorCode())
+	assert.False(t, types.IsChannelError(relayErr))
+	assert.False(t, c.Writer.Written())
+	assert.Empty(t, recorder.Header().Get("Content-Type"))
+	assert.Empty(t, recorder.Body.String())
+}
+
+func TestExecuteRelayHTTPRequest_HeaderSuccessKeepsBodyReadable(t *testing.T) {
+	requestContextDone := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		go func() {
+			<-req.Context().Done()
+			close(requestContextDone)
+		}()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("stream body")),
+			Request:    req,
+		}, nil
+	})}
+	req, err := http.NewRequest(http.MethodPost, "https://upstream.example/v1/responses", nil)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{}
+
+	resp, err := executeRelayHTTPRequest(c, client, req, info, time.Second)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, info.UpstreamHeaderTime.IsZero())
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "stream body", string(body))
+	require.NoError(t, resp.Body.Close())
+	select {
+	case <-requestContextDone:
+	case <-time.After(time.Second):
+		t.Fatal("request context was not canceled when response body closed")
+	}
+	assert.NoError(t, context.Cause(req.Context()))
+}
+
+func TestExecuteRelayHTTPRequest_DownstreamCancellationCancelsHeaderWait(t *testing.T) {
+	requestStarted := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		close(requestStarted)
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	req, err := http.NewRequest(http.MethodPost, "https://upstream.example/v1/responses", nil)
+	require.NoError(t, err)
+	downstreamContext, cancelDownstream := context.WithCancel(context.Background())
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(downstreamContext)
+	info := &relaycommon.RelayInfo{}
+
+	type requestResult struct {
+		response *http.Response
+		err      error
+	}
+	result := make(chan requestResult, 1)
+	go func() {
+		resp, requestErr := executeRelayHTTPRequest(c, client, req, info, time.Hour)
+		result <- requestResult{response: resp, err: requestErr}
+	}()
+	<-requestStarted
+	cancelDownstream()
+
+	select {
+	case got := <-result:
+		require.Nil(t, got.response)
+		var relayErr *types.NewAPIError
+		require.ErrorAs(t, got.err, &relayErr)
+		assert.Equal(t, types.ErrorCodeDoRequestFailed, relayErr.GetErrorCode())
+		assert.False(t, c.Writer.Written())
+	case <-time.After(time.Second):
+		t.Fatal("upstream header wait did not stop after downstream cancellation")
+	}
+}
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()

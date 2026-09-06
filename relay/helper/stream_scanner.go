@@ -26,6 +26,7 @@ const (
 	InitialScannerBufferSize    = 64 << 10  // 64KB (64*1024)
 	DefaultMaxScannerBufferSize = 128 << 20 // 64MB (64*1024*1024) default SSE buffer size
 	DefaultPingInterval         = 10 * time.Second
+	DefaultPingFirstDelay       = 20 * time.Second
 	// streamWriteTimeout bounds a single blocked write to a slow client so the
 	// unconditional wg.Wait() in cleanup can always finish. Without it, a slow
 	// but connected client (full TCP buffer, no server WriteTimeout) could hang
@@ -91,7 +92,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
 		scanner     = NewStreamScanner(resp.Body)
 		ticker      = time.NewTicker(streamingTimeout)
-		pingTicker  *time.Ticker
 		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
 		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
 		cleanupOnce sync.Once
@@ -110,9 +110,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	if pingInterval <= 0 {
 		pingInterval = DefaultPingInterval
 	}
-
-	if pingEnabled {
-		pingTicker = time.NewTicker(pingInterval)
+	pingFirstDelay := time.Duration(generalSettings.PingFirstDelaySeconds) * time.Second
+	if pingFirstDelay <= 0 {
+		pingFirstDelay = DefaultPingFirstDelay
 	}
 
 	logger.LogDebug(c, "relay timeout seconds: %d", common.RelayTimeout)
@@ -120,6 +120,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	logger.LogDebug(c, "relay max idle conns per host: %d", common.RelayMaxIdleConnsPerHost)
 	logger.LogDebug(c, "streaming timeout seconds: %d", int64(streamingTimeout.Seconds()))
 	logger.LogDebug(c, "ping interval seconds: %d", int64(pingInterval.Seconds()))
+	logger.LogDebug(c, "first ping delay milliseconds: %d", pingFirstDelay.Milliseconds())
 
 	cleanup := func() {
 		cleanupOnce.Do(func() {
@@ -130,10 +131,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 
 			ticker.Stop()
-			if pingTicker != nil {
-				pingTicker.Stop()
-			}
-
 			wg.Wait()
 		})
 	}
@@ -143,11 +140,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	scanner.Split(bufio.ScanLines)
 	copyCodexSSEHeaders(c, resp)
 	SetEventStreamHeaders(c)
+	// HTTP 200 can still carry an initial SSE error. Leave headers uncommitted
+	// so adaptors can reject it and retry; data writers and keepalive pings flush
+	// when they actually produce downstream output.
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
 	// Handle ping data sending with improved error handling
-	if pingEnabled && pingTicker != nil {
+	if pingEnabled {
 		wg.Add(1)
 		gopool.Go(func() {
 			defer func() {
@@ -164,10 +164,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			maxPingDuration := 30 * time.Minute // 最大 ping 持续时间
 			pingTimeout := time.NewTimer(maxPingDuration)
 			defer pingTimeout.Stop()
+			firstTimer := time.NewTimer(pingFirstDelay)
+			defer firstTimer.Stop()
+			var pingTicker *time.Ticker
+			defer func() {
+				if pingTicker != nil {
+					pingTicker.Stop()
+				}
+			}()
+			pingC := firstTimer.C
 
 			for {
 				select {
-				case <-pingTicker.C:
+				case <-pingC:
 					var err error
 					func() {
 						writeMutex.Lock()
@@ -181,6 +190,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 						return
 					}
 					logger.LogDebug(c, "ping data sent")
+					if pingTicker == nil {
+						pingTicker = time.NewTicker(pingInterval)
+						pingC = pingTicker.C
+					}
 				case <-ctx.Done():
 					return
 				case <-stopChan:

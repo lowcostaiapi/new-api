@@ -44,7 +44,7 @@ func requestContextDone(c *gin.Context) bool {
 
 func SetEventStreamHeaders(c *gin.Context) {
 	// 检查是否已经设置过头部
-	if _, exists := c.Get("event_stream_headers_set"); exists {
+	if c.GetBool("event_stream_headers_set") {
 		return
 	}
 
@@ -56,6 +56,21 @@ func SetEventStreamHeaders(c *gin.Context) {
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("Transfer-Encoding", "chunked")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
+}
+
+// ResetEventStreamHeaders removes uncommitted SSE headers before returning a
+// regular JSON error. Once a ping or stream chunk has been written, HTTP headers
+// are already committed and must not be changed.
+func ResetEventStreamHeaders(c *gin.Context) {
+	if c == nil || c.Writer == nil || c.Writer.Written() || !c.GetBool("event_stream_headers_set") {
+		return
+	}
+	c.Writer.Header().Del("Content-Type")
+	c.Writer.Header().Del("Cache-Control")
+	c.Writer.Header().Del("Connection")
+	c.Writer.Header().Del("Transfer-Encoding")
+	c.Writer.Header().Del("X-Accel-Buffering")
+	c.Set("event_stream_headers_set", false)
 }
 
 func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {

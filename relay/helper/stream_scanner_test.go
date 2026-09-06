@@ -97,6 +97,8 @@ func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 	})
 
 	assert.False(t, called.Load(), "handler should not be called for empty body")
+	assert.False(t, c.Writer.Written(), "an empty upstream stream must leave the response uncommitted")
+	assert.Equal(t, "text/event-stream", c.Writer.Header().Get("Content-Type"))
 }
 
 func TestStreamScannerHandler_1000Chunks(t *testing.T) {
@@ -288,11 +290,14 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
+	oldFirstDelay := setting.PingFirstDelaySeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
+	setting.PingFirstDelaySeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
+		setting.PingFirstDelaySeconds = oldFirstDelay
 		setting.PingIntervalSeconds = oldSeconds
 	})
 
@@ -339,11 +344,14 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
+	oldFirstDelay := setting.PingFirstDelaySeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
+	setting.PingFirstDelaySeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
+		setting.PingFirstDelaySeconds = oldFirstDelay
 		setting.PingIntervalSeconds = oldSeconds
 	})
 

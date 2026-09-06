@@ -95,6 +95,7 @@ const schema = z.object({
   }),
   general_setting: z.object({
     ping_interval_enabled: z.boolean(),
+    ping_first_delay_seconds: z.coerce.number().min(1),
     ping_interval_seconds: z.coerce.number().min(1),
   }),
 })
@@ -107,6 +108,7 @@ type FlatGlobalModelSettings = {
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean
+  'general_setting.ping_first_delay_seconds': number
   'general_setting.ping_interval_seconds': number
 }
 
@@ -125,6 +127,8 @@ const flattenGlobalValues = (
   ),
   'general_setting.ping_interval_enabled':
     values.general_setting.ping_interval_enabled,
+  'general_setting.ping_first_delay_seconds':
+    values.general_setting.ping_first_delay_seconds,
   'general_setting.ping_interval_seconds':
     values.general_setting.ping_interval_seconds,
 })
@@ -377,6 +381,39 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
+            name='general_setting.ping_first_delay_seconds'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('First Ping Delay (seconds)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={1}
+                    disabled={!pingEnabled}
+                    className='w-24'
+                    value={
+                      field.value === undefined || field.value === null
+                        ? ''
+                        : String(field.value)
+                    }
+                    onChange={(event) => field.onChange(event.target.value)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Delay before the first keep-alive ping after the upstream stream is accepted.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
             name='general_setting.ping_interval_seconds'
             render={({ field }) => (
               <FormItem>
@@ -399,9 +436,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   />
                 </FormControl>
                 <FormDescription>
-                  {t(
-                    'Recommended to keep this high to avoid upstream throttling.'
-                  )}
+                  {t('Interval between keep-alive pings after the first ping.')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,14 @@ func abortWithOpenAiMessage(c *gin.Context, statusCode int, message string, code
 	})
 	c.Abort()
 	logger.LogError(c.Request.Context(), fmt.Sprintf("user %d | %s", userId, message))
+	if len(code) > 0 && code[0] == types.ErrorCodeGetChannelFailed {
+		service.RecordRelayErrorLog(c, types.NewErrorWithStatusCode(
+			fmt.Errorf("%s", message),
+			code[0],
+			statusCode,
+			types.ErrOptionWithSkipRetry(),
+		))
+	}
 }
 
 func abortWithMidjourneyMessage(c *gin.Context, statusCode int, code int, description string) {
