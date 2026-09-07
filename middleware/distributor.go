@@ -153,11 +153,15 @@ func Distribute() func(c *gin.Context) {
 						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
 						//	message = "数据库一致性已被破坏，请联系管理员"
 						//}
+						// 请求还没进中继就没渠道可用，不会写错误日志，只能在这里实时上报
+						service.NotifyDispatchFinalFailure(c, usingGroup, modelRequest.Model, http.StatusServiceUnavailable, message)
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeGetChannelFailed)
 						return
 					}
 					if channel == nil {
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeGetChannelFailed)
+						noChannelMessage := i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model})
+						service.NotifyDispatchFinalFailure(c, usingGroup, modelRequest.Model, http.StatusServiceUnavailable, noChannelMessage)
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, noChannelMessage, types.ErrorCodeGetChannelFailed)
 						return
 					}
 				}
