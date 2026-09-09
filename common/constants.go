@@ -173,6 +173,9 @@ var CohereSafetySetting string
 const (
 	RequestIdKey         = "X-Oneapi-Request-Id"
 	UpstreamRequestIdKey = "X-Upstream-Request-Id"
+	// UpstreamTraceIdKey is the per-request trace header returned by CLIProxyAPI (CPA)
+	// upstreams; it is captured as the upstream request id when X-Oneapi-Request-Id is absent.
+	UpstreamTraceIdKey = "X-Cpa-Trace-Id"
 )
 
 const (

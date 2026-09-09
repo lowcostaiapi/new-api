@@ -38,7 +38,28 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 		}
 		return false
 	}
+	if strings.EqualFold(k, common.UpstreamTraceIdKey) {
+		// CPA trace id: keep it for reconciliation, never leak it downstream, and
+		// let an explicit X-Oneapi-Request-Id win if the upstream sent both.
+		if c != nil && len(v) > 0 && c.GetString(common.UpstreamRequestIdKey) == "" {
+			c.Set(common.UpstreamRequestIdKey, v[0])
+		}
+		return false
+	}
 	return true
+}
+
+// ExtractUpstreamRequestId picks the upstream-side request identifier from a
+// response header set: X-Oneapi-Request-Id (new-api family upstreams) first,
+// then X-Cpa-Trace-Id (CLIProxyAPI). Empty when neither is present.
+func ExtractUpstreamRequestId(h http.Header) string {
+	if h == nil {
+		return ""
+	}
+	if id := h.Get(common.RequestIdKey); id != "" {
+		return id
+	}
+	return h.Get(common.UpstreamTraceIdKey)
 }
 
 func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {

@@ -467,7 +467,7 @@ func executeRelayHTTPRequest(c *gin.Context, client *http.Client, req *http.Requ
 	info.UpstreamHeaderTime = time.Now()
 	common2.SetContextKey(c, constant2.ContextKeyUpstreamRetryAfter, resp.Header.Get("Retry-After"))
 
-	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
+	if upID := service.ExtractUpstreamRequestId(resp.Header); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
 
