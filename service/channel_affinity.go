@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"hash/fnv"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -602,7 +603,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			TTLSeconds:                ttlSeconds,
 			RuleName:                  rule.Name,
 			SkipRetry:                 rule.SkipRetryOnFailure,
-			FailureEscapeMaxFallbacks: rule.GetFailureEscapeMaxFallbacks(),
+			FailureEscapeMaxFallbacks: configuredChannelAffinityFailureEscapeMaxFallbacks(rule),
 			ParamTemplate:             cloneStringAnyMap(rule.ParamOverrideTemplate),
 			KeySourceType:             strings.TrimSpace(usedSource.Type),
 			KeySourceKey:              strings.TrimSpace(usedSource.Key),
@@ -646,16 +647,42 @@ func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	return meta.SkipRetry
 }
 
+const (
+	defaultChannelAffinityFailureEscapeMaxFallbacks      = 1
+	defaultCodexChannelAffinityFailureEscapeMaxFallbacks = 3
+)
+
+// configuredChannelAffinityFailureEscapeMaxFallbacks preserves the legacy
+// one-fallback default for arbitrary rules while giving the built-in Codex
+// rule the requested three fallback attempts when an old options JSON omits
+// the new field. An explicit positive rule value always wins.
+func configuredChannelAffinityFailureEscapeMaxFallbacks(rule operation_setting.ChannelAffinityRule) int {
+	if rule.FailureEscapeMaxFallbacks > 0 {
+		return rule.FailureEscapeMaxFallbacks
+	}
+	if strings.EqualFold(strings.TrimSpace(rule.Name), "codex cli trace") {
+		return defaultCodexChannelAffinityFailureEscapeMaxFallbacks
+	}
+	return defaultChannelAffinityFailureEscapeMaxFallbacks
+}
+
 func channelAffinityFailureEscapeMaxFallbacks(c *gin.Context) int {
 	if c != nil {
-		if maxFallbacks := c.GetInt(ginKeyChannelAffinityFallbackMax); maxFallbacks > 0 {
-			return maxFallbacks
+		if max := c.GetInt(ginKeyChannelAffinityFallbackMax); max > 0 {
+			return max
 		}
 		if meta, ok := getChannelAffinityMeta(c); ok && meta.FailureEscapeMaxFallbacks > 0 {
 			return meta.FailureEscapeMaxFallbacks
 		}
 	}
-	return operation_setting.DefaultChannelAffinityFailureEscapeMaxFallbacks
+	return defaultChannelAffinityFailureEscapeMaxFallbacks
+}
+
+func channelAffinityFailureEscapeFallbackCount(c *gin.Context) int {
+	if c == nil {
+		return 0
+	}
+	return c.GetInt(ginKeyChannelAffinityFallbackCount)
 }
 
 func updateChannelAffinityFailureEscapeLogInfo(c *gin.Context, maxFallbacks int, count int) {
@@ -670,6 +697,10 @@ func updateChannelAffinityFailureEscapeLogInfo(c *gin.Context, maxFallbacks int,
 	}
 }
 
+// TryEscapeChannelAffinityFailure releases an affinity-bound request for the
+// first fallback attempt when the upstream rejected it before a response
+// stream began. The per-rule fallback budget is independent from RetryTimes;
+// RetryTimes remains the hard upper bound for the whole request.
 func TryEscapeChannelAffinityFailure(c *gin.Context, statusCode int, retryTimes int) bool {
 	if c == nil || retryTimes <= 0 || !ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
@@ -682,52 +713,51 @@ func TryEscapeChannelAffinityFailure(c *gin.Context, statusCode int, retryTimes 
 	default:
 		return false
 	}
-	if HasEscapedChannelAffinityFailure(c) {
+	if c.GetBool(ginKeyChannelAffinityEscaped) {
 		return false
 	}
 
 	maxFallbacks := channelAffinityFailureEscapeMaxFallbacks(c)
-	if statusCode == 504 || statusCode == 524 {
+	if statusCode == http.StatusGatewayTimeout || statusCode == 524 {
+		// A timeout fallback is deliberately capped at one extra channel;
+		// a larger per-rule budget must not stack the ~120s timeout wall.
 		maxFallbacks = 1
 	}
 	if maxFallbacks <= 0 {
 		return false
 	}
-
 	c.Set(ginKeyChannelAffinityFallbackMax, maxFallbacks)
 	c.Set(ginKeyChannelAffinityEscaped, true)
 	c.Set(ginKeyChannelAffinityFallbackCount, 1)
 	ClearCurrentChannelAffinityCache(c)
 	c.Set(ginKeyChannelAffinitySkipRetry, false)
-	updateChannelAffinityFailureEscapeLogInfo(c, maxFallbacks, 1)
 	if anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
 		if info, ok := anyInfo.(map[string]interface{}); ok {
 			info["failure_escape"] = true
 			info["failure_escape_status_code"] = statusCode
+			info["failure_escape_max_fallbacks"] = maxFallbacks
+			info["failure_escape_count"] = 1
 		}
 	}
 	return true
 }
 
-func ConsumeChannelAffinityFailureFallback(c *gin.Context, statusCode int, retryTimes int) bool {
+// ConsumeChannelAffinityFailureFallback admits one more post-affinity
+// fallback. Call it only after the ordinary status/error policy has accepted
+// the retry. It returns true for non-escaped requests so the normal retry path
+// remains unchanged.
+func ConsumeChannelAffinityFailureFallback(c *gin.Context, retryTimes int) bool {
 	if retryTimes <= 0 {
 		return false
 	}
 	if !HasEscapedChannelAffinityFailure(c) {
 		return true
 	}
-
 	maxFallbacks := channelAffinityFailureEscapeMaxFallbacks(c)
-	count := c.GetInt(ginKeyChannelAffinityFallbackCount)
-	if (statusCode == 504 || statusCode == 524) && maxFallbacks > 1 {
-		maxFallbacks = 1
-		c.Set(ginKeyChannelAffinityFallbackMax, maxFallbacks)
-		updateChannelAffinityFailureEscapeLogInfo(c, maxFallbacks, count)
-	}
+	count := channelAffinityFailureEscapeFallbackCount(c)
 	if count >= maxFallbacks {
 		return false
 	}
-
 	count++
 	c.Set(ginKeyChannelAffinityFallbackCount, count)
 	updateChannelAffinityFailureEscapeLogInfo(c, maxFallbacks, count)
@@ -737,7 +767,6 @@ func ConsumeChannelAffinityFailureFallback(c *gin.Context, statusCode int, retry
 func HasEscapedChannelAffinityFailure(c *gin.Context) bool {
 	return c != nil && c.GetBool(ginKeyChannelAffinityEscaped)
 }
-
 func ClearCurrentChannelAffinityCache(c *gin.Context) bool {
 	if c == nil {
 		return false

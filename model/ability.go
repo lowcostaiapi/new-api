@@ -105,12 +105,12 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string, excluded map[int]struct{}) (*Channel, error) {
+func GetChannel(group string, model string, retry int, requestPath string, failed map[int]struct{}, allowRepeat bool) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
 	var channelQuery *gorm.DB
-	if len(excluded) > 0 {
+	if len(failed) > 0 {
 		channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
 	} else {
 		channelQuery, err = getChannelQuery(group, model, retry)
@@ -127,32 +127,8 @@ func GetChannel(group string, model string, retry int, requestPath string, exclu
 		return nil, err
 	}
 	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
-	if len(excluded) > 0 {
-		maxPriority := int64(-1 << 63)
-		untriedAbilities := make([]Ability, 0, len(abilities))
-		for _, ability := range abilities {
-			if _, failed := excluded[ability.ChannelId]; failed {
-				continue
-			}
-			untriedAbilities = append(untriedAbilities, ability)
-			priority := int64(0)
-			if ability.Priority != nil {
-				priority = *ability.Priority
-			}
-			if priority > maxPriority {
-				maxPriority = priority
-			}
-		}
-		abilities = abilities[:0]
-		for _, ability := range untriedAbilities {
-			priority := int64(0)
-			if ability.Priority != nil {
-				priority = *ability.Priority
-			}
-			if priority == maxPriority {
-				abilities = append(abilities, ability)
-			}
-		}
+	if len(failed) > 0 {
+		abilities = filterRetryAbilities(abilities, failed, allowRepeat)
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {
@@ -176,6 +152,43 @@ func GetChannel(group string, model string, retry int, requestPath string, exclu
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func filterRetryAbilities(abilities []Ability, failed map[int]struct{}, allowRepeat bool) []Ability {
+	if len(abilities) == 0 || len(failed) == 0 {
+		return abilities
+	}
+	maxPriority := int64(-1 << 63)
+	for _, ability := range abilities {
+		if _, seen := failed[ability.ChannelId]; seen {
+			continue
+		}
+		if ability.Priority != nil && *ability.Priority > maxPriority {
+			maxPriority = *ability.Priority
+		}
+	}
+	allTried := maxPriority == int64(-1<<63)
+	if allTried {
+		if !allowRepeat {
+			return nil
+		}
+		for _, ability := range abilities {
+			if ability.Priority != nil && *ability.Priority > maxPriority {
+				maxPriority = *ability.Priority
+			}
+		}
+	}
+	result := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		if ability.Priority == nil || *ability.Priority != maxPriority {
+			continue
+		}
+		if _, seen := failed[ability.ChannelId]; seen && !allTried {
+			continue
+		}
+		result = append(result, ability)
+	}
+	return result
 }
 
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and
