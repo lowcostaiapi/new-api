@@ -86,7 +86,7 @@ func TestTryEscapeChannelAffinityFailureStatusAllowlist(t *testing.T) {
 	}
 
 	ctx, _ := buildAffinityEscapeContext(t)
-	require.False(t, TryEscapeChannelAffinityFailure(ctx, http.StatusTooManyRequests, 3))
+	require.True(t, TryEscapeChannelAffinityFailure(ctx, http.StatusTooManyRequests, 3))
 }
 
 func TestTryEscapeChannelAffinityFailureUsesConfiguredFallbackBudget(t *testing.T) {
@@ -103,6 +103,19 @@ func TestTryEscapeChannelAffinityFailureUsesConfiguredFallbackBudget(t *testing.
 	info := infoAny.(map[string]interface{})
 	require.Equal(t, 3, info["failure_escape_max_fallbacks"])
 	require.Equal(t, 3, info["failure_escape_count"])
+}
+
+func TestTryEscapeChannelAffinityFailureSupportsConfiguredFourAndEightFallbacks(t *testing.T) {
+	for _, maxFallbacks := range []int{4, 8} {
+		t.Run(fmt.Sprintf("max_%d", maxFallbacks), func(t *testing.T) {
+			ctx, _ := buildAffinityEscapeContextWithMax(t, maxFallbacks)
+			require.True(t, TryEscapeChannelAffinityFailure(ctx, http.StatusInternalServerError, maxFallbacks))
+			for i := 1; i < maxFallbacks; i++ {
+				require.True(t, ConsumeChannelAffinityFailureFallback(ctx, maxFallbacks-i))
+			}
+			require.False(t, ConsumeChannelAffinityFailureFallback(ctx, 1))
+		})
+	}
 }
 
 func TestTryEscapeChannelAffinityFailureTimeoutKeepsOneFallbackCap(t *testing.T) {

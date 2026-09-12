@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -50,7 +52,7 @@ func TestShouldRetryEscapesChannelAffinityThenUsesNormalRetryBudget(t *testing.T
 	require.False(t, shouldRetry(ctx, err503, 2))
 }
 
-func TestShouldRetryKeepsAffinityForNonEscapeStatus(t *testing.T) {
+func TestShouldRetryEscapesAffinityForConfigured429(t *testing.T) {
 	ctx := buildAffinityRetryContext(t)
 	err429 := types.NewOpenAIError(
 		errors.New("rate limited"),
@@ -58,8 +60,8 @@ func TestShouldRetryKeepsAffinityForNonEscapeStatus(t *testing.T) {
 		http.StatusTooManyRequests,
 	)
 
-	require.False(t, shouldRetry(ctx, err429, 3))
-	require.False(t, service.HasEscapedChannelAffinityFailure(ctx))
+	require.True(t, shouldRetry(ctx, err429, 3))
+	require.True(t, service.HasEscapedChannelAffinityFailure(ctx))
 }
 
 func TestShouldRetryWithoutAffinityKeepsNormalRetryBudget(t *testing.T) {
@@ -165,6 +167,76 @@ func TestShouldRetryConfigured524StillHonorsSpecificChannel(t *testing.T) {
 	)
 
 	require.False(t, shouldRetry(ctx, err524, 4))
+}
+
+func TestShouldRetryAffinityUsesConfiguredRetryStatusRanges(t *testing.T) {
+	previous := operation_setting.AutomaticRetryStatusCodesToString()
+	require.NoError(t, operation_setting.AutomaticRetryStatusCodesFromString("400-429,500-599"))
+	t.Cleanup(func() {
+		require.NoError(t, operation_setting.AutomaticRetryStatusCodesFromString(previous))
+	})
+
+	for _, statusCode := range []int{400, 408, 429, 500, 599} {
+		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
+			ctx := buildAffinityRetryContext(t)
+			err := types.NewOpenAIError(
+				errors.New(http.StatusText(statusCode)),
+				types.ErrorCodeBadResponseStatusCode,
+				statusCode,
+			)
+			require.True(t, shouldRetry(ctx, err, 4), "affinity escape must follow AutomaticRetryStatusCodes")
+		})
+	}
+}
+
+func TestShouldNotRetryAffinityOutsideConfiguredRetryStatusRanges(t *testing.T) {
+	previous := operation_setting.AutomaticRetryStatusCodesToString()
+	require.NoError(t, operation_setting.AutomaticRetryStatusCodesFromString("400-429,500-599"))
+	t.Cleanup(func() {
+		require.NoError(t, operation_setting.AutomaticRetryStatusCodesFromString(previous))
+	})
+
+	for _, statusCode := range []int{399, 430, 499} {
+		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
+			ctx := buildAffinityRetryContext(t)
+			err := types.NewOpenAIError(
+				errors.New(http.StatusText(statusCode)),
+				types.ErrorCodeBadResponseStatusCode,
+				statusCode,
+			)
+			require.False(t, shouldRetry(ctx, err, 4), "affinity escape must reject status outside AutomaticRetryStatusCodes")
+		})
+	}
+}
+
+func TestShouldRetryStopsAfterClientContextIsCanceled(t *testing.T) {
+	ctx := buildAffinityRetryContext(t)
+	err500 := types.NewOpenAIError(
+		errors.New("upstream unavailable"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusInternalServerError,
+	)
+	require.True(t, shouldRetry(ctx, err500, 4))
+
+	requestCtx, cancel := context.WithCancel(ctx.Request.Context())
+	cancel()
+	ctx.Request = ctx.Request.WithContext(requestCtx)
+	require.False(t, shouldRetry(ctx, err500, 3))
+}
+
+func TestShouldRetryDoesNotEscapeWhenClientContextIsCanceled(t *testing.T) {
+	ctx := buildAffinityRetryContext(t)
+	requestCtx, cancel := context.WithCancel(ctx.Request.Context())
+	cancel()
+	ctx.Request = ctx.Request.WithContext(requestCtx)
+
+	err500 := types.NewOpenAIError(
+		errors.New("upstream request canceled"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusInternalServerError,
+	)
+	require.False(t, shouldRetry(ctx, err500, 4))
+	require.False(t, service.HasEscapedChannelAffinityFailure(ctx))
 }
 
 func TestShouldRetryConfiguredStatusCodeRegression(t *testing.T) {

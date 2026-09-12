@@ -332,6 +332,11 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
+	if c == nil || (c.Request != nil && c.Request.Context().Err() != nil) {
+		// Once the downstream request is canceled there is no recipient for a
+		// replacement response; do not spend another upstream attempt.
+		return false
+	}
 	// A specific channel request is pinned by the caller and must never
 	// escape or enter any retry branch, including channel:* errors.
 	if _, ok := c.Get("specific_channel_id"); ok {

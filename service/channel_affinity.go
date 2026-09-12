@@ -705,12 +705,15 @@ func TryEscapeChannelAffinityFailure(c *gin.Context, statusCode int, retryTimes 
 	if c == nil || retryTimes <= 0 || !ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		// The downstream has already gone away; retrying can only spend upstream
+		// quota and cannot deliver the replacement response to this request.
+		return false
+	}
 	if c.Writer != nil && c.Writer.Written() {
 		return false
 	}
-	switch statusCode {
-	case 502, 503, 504, 524:
-	default:
+	if !operation_setting.ShouldRetryByStatusCode(statusCode) {
 		return false
 	}
 	if c.GetBool(ginKeyChannelAffinityEscaped) {
