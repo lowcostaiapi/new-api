@@ -111,16 +111,10 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, failed map[int]struct{}, allowRepeat ...bool) (*Channel, error) {
-	var failedChannels map[int]struct{}
-	failedChannels = failed
-	repeatAfterExhaustion := true
-	if len(allowRepeat) > 0 {
-		repeatAfterExhaustion = allowRepeat[0]
-	}
+func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, excluded map[int]struct{}) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath, failedChannels, repeatAfterExhaustion)
+		return GetChannel(group, model, retry, requestPath, excluded)
 	}
 
 	channelSyncLock.RLock()
@@ -138,22 +132,17 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	if len(channels) == 0 {
 		return nil, nil
 	}
-	if len(failedChannels) > 0 {
-		candidateChannels := make([]*Channel, 0, len(channels))
+	if len(excluded) > 0 {
+		untriedChannels := make([]int, 0, len(channels))
 		for _, channelID := range channels {
-			channel, ok := channelsIDM[channelID]
-			if !ok {
-				return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelID)
+			if _, failed := excluded[channelID]; !failed {
+				untriedChannels = append(untriedChannels, channelID)
 			}
-			candidateChannels = append(candidateChannels, channel)
 		}
-		filtered := filterRetryCandidates(candidateChannels, failedChannels, repeatAfterExhaustion)
-		if len(filtered) == 0 {
+		channels = untriedChannels
+		retry = 0
+		if len(channels) == 0 {
 			return nil, nil
-		}
-		channels = make([]int, 0, len(filtered))
-		for _, channel := range filtered {
-			channels = append(channels, channel.Id)
 		}
 	}
 
@@ -230,45 +219,6 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	}
 	// return null if no channel is not found
 	return nil, errors.New("channel not found")
-}
-
-// filterRetryCandidates selects the highest-priority band that still has an
-// untried channel. It only permits a repeat after every candidate was tried.
-func filterRetryCandidates(channels []*Channel, failed map[int]struct{}, allowRepeat ...bool) []*Channel {
-	if len(channels) == 0 || len(failed) == 0 {
-		return channels
-	}
-	maxPriority := int64(-1 << 63)
-	for _, channel := range channels {
-		if _, seen := failed[channel.Id]; seen {
-			continue
-		}
-		if channel.GetPriority() > maxPriority {
-			maxPriority = channel.GetPriority()
-		}
-	}
-	allTried := maxPriority == int64(-1<<63)
-	if allTried {
-		if len(allowRepeat) > 0 && !allowRepeat[0] {
-			return nil
-		}
-		for _, channel := range channels {
-			if channel.GetPriority() > maxPriority {
-				maxPriority = channel.GetPriority()
-			}
-		}
-	}
-	result := make([]*Channel, 0, len(channels))
-	for _, channel := range channels {
-		if channel.GetPriority() != maxPriority {
-			continue
-		}
-		if _, seen := failed[channel.Id]; seen && !allTried {
-			continue
-		}
-		result = append(result, channel)
-	}
-	return result
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and

@@ -3,15 +3,21 @@ package service
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestRetryParamTracksFailedChannelsWithoutDuplicates(t *testing.T) {
-	param := &RetryParam{}
+func TestRetryParamKeepsGlobalAttemptWhenSelectionRetryResets(t *testing.T) {
+	param := RetryParam{Retry: common.GetPointer(3)}
+	param.MarkChannelFailed(337)
+	param.MarkChannelFailed(354)
+	param.MarkChannelFailed(337)
 
-	param.MarkChannelFailed(33)
-	param.MarkChannelFailed(15)
-	param.MarkChannelFailed(33)
+	param.SetRetry(0)
+	param.ResetRetryNextTry()
+	param.IncreaseAttempt()
 
-	require.Equal(t, map[int]struct{}{33: {}, 15: {}}, param.FailedChannels)
+	assert.Equal(t, 1, param.GetAttempt())
+	assert.Equal(t, 0, param.GetRetry())
+	assert.Equal(t, map[int]struct{}{337: {}, 354: {}}, param.FailedChannels)
 }

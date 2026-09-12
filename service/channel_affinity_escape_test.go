@@ -1,72 +1,66 @@
 package service
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func buildAffinityEscapeContext(t *testing.T) (*gin.Context, string) {
+func buildAffinityEscapeContext(t *testing.T, maxFallbacks int) *gin.Context {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	cacheKeySuffix := fmt.Sprintf("affinity-escape-test-%d", time.Now().UnixNano())
-	cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
-	cache := getChannelAffinityCache()
-	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 28, time.Minute))
-	t.Cleanup(func() {
-		_, _ = cache.DeleteMany([]string{cacheKeySuffix})
-	})
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	setChannelAffinityContext(ctx, channelAffinityMeta{
-		CacheKey:   cacheKeyFull,
-		TTLSeconds: 60,
-		RuleName:   "claude cli trace",
-		SkipRetry:  true,
+		CacheKey:                  "channel-affinity-escape-test",
+		TTLSeconds:                60,
+		RuleName:                  "codex cli trace",
+		SkipRetry:                 true,
+		FailureEscapeMaxFallbacks: maxFallbacks,
 	})
 	ctx.Set(ginKeyChannelAffinitySkipRetry, true)
-	return ctx, cacheKeySuffix
+	ctx.Set(ginKeyChannelAffinityLogInfo, map[string]interface{}{})
+	return ctx
 }
 
-func TestTryEscapeChannelAffinityFailureClearsCacheOnce(t *testing.T) {
-	ctx, cacheKeySuffix := buildAffinityEscapeContext(t)
+func TestChannelAffinityFailureEscapeConsumesConfiguredBudget(t *testing.T) {
+	ctx := buildAffinityEscapeContext(t, 3)
 
-	require.True(t, TryEscapeChannelAffinityFailure(ctx, http.StatusServiceUnavailable, 3))
-	require.True(t, HasEscapedChannelAffinityFailure(ctx))
-	require.False(t, ShouldSkipRetryAfterChannelAffinityFailure(ctx))
+	require.True(t, TryEscapeChannelAffinityFailure(ctx, http.StatusBadGateway, 4))
+	assert.True(t, HasEscapedChannelAffinityFailure(ctx))
+	assert.False(t, ShouldSkipRetryAfterChannelAffinityFailure(ctx))
+	require.True(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusServiceUnavailable, 3))
+	require.True(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusServiceUnavailable, 2))
+	assert.False(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusServiceUnavailable, 1))
 
-	_, found, err := getChannelAffinityCache().Get(cacheKeySuffix)
-	require.NoError(t, err)
-	require.False(t, found)
-	require.False(t, TryEscapeChannelAffinityFailure(ctx, http.StatusServiceUnavailable, 2))
+	infoAny, ok := ctx.Get(ginKeyChannelAffinityLogInfo)
+	require.True(t, ok)
+	info := infoAny.(map[string]interface{})
+	assert.Equal(t, 3, info["failure_escape_count"])
+	assert.Equal(t, 3, info["failure_escape_max_fallbacks"])
 }
 
-func TestTryEscapeChannelAffinityFailureRequiresUnwrittenResponse(t *testing.T) {
-	ctx, cacheKeySuffix := buildAffinityEscapeContext(t)
+func TestChannelAffinityFailureEscapeTimeoutOnlyLowersBudget(t *testing.T) {
+	ctx := buildAffinityEscapeContext(t, 3)
+
+	require.True(t, TryEscapeChannelAffinityFailure(ctx, http.StatusBadGateway, 4))
+	require.True(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusServiceUnavailable, 3))
+	assert.False(t, ConsumeChannelAffinityFailureFallback(ctx, http.StatusGatewayTimeout, 2))
+
+	infoAny, ok := ctx.Get(ginKeyChannelAffinityLogInfo)
+	require.True(t, ok)
+	info := infoAny.(map[string]interface{})
+	assert.Equal(t, 2, info["failure_escape_count"])
+	assert.Equal(t, 1, info["failure_escape_max_fallbacks"])
+}
+
+func TestChannelAffinityFailureEscapeRequiresUnwrittenResponse(t *testing.T) {
+	ctx := buildAffinityEscapeContext(t, 3)
 	ctx.Writer.WriteHeaderNow()
 
-	require.False(t, TryEscapeChannelAffinityFailure(ctx, http.StatusServiceUnavailable, 3))
-	require.False(t, HasEscapedChannelAffinityFailure(ctx))
-
-	_, found, err := getChannelAffinityCache().Get(cacheKeySuffix)
-	require.NoError(t, err)
-	require.True(t, found)
-}
-
-func TestTryEscapeChannelAffinityFailureStatusAllowlist(t *testing.T) {
-	for _, statusCode := range []int{502, 503, 504, 524} {
-		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
-			ctx, _ := buildAffinityEscapeContext(t)
-			require.True(t, TryEscapeChannelAffinityFailure(ctx, statusCode, 1))
-		})
-	}
-
-	ctx, _ := buildAffinityEscapeContext(t)
-	require.False(t, TryEscapeChannelAffinityFailure(ctx, http.StatusTooManyRequests, 3))
+	assert.False(t, TryEscapeChannelAffinityFailure(ctx, http.StatusServiceUnavailable, 4))
+	assert.False(t, HasEscapedChannelAffinityFailure(ctx))
 }
