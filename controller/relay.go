@@ -247,6 +247,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
+		// Preserve production final-failure reporting after the PR1 retry loop.
+		service.NotifyFinalFailure(c, relayInfo, newAPIError)
 	}
 }
 
