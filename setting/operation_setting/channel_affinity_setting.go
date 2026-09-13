@@ -77,10 +77,10 @@ var codexCliPassThroughHeaders = []string{
 	"X-Codex-Turn-Metadata",
 	"X-Codex-Window-Id",
 	"X-Codex-Parent-Thread-Id",
-	//"X-Codex-Installation-Id",
+	"X-Codex-Installation-Id",
 	"X-OpenAI-Subagent",
 	"X-OpenAI-Memgen-Request",
-	//"X-OAI-Attestation",
+	"X-OAI-Attestation",
 	"X-ResponsesAPI-Include-Timing-Metrics",
 	"X-OpenAI-Internal-Codex-Responses-Lite",
 }
