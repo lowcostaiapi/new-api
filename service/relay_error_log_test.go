@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,14 +20,19 @@ func TestBuildRelayErrorLogOtherClearsStaleChannelForRouteFailure(t *testing.T) 
 	c.Set("channel_type", 1)
 	err := types.NewErrorWithStatusCode(errors.New("no available channel"), types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable)
 
-	other := buildRelayErrorLogOther(c, err)
+	logOther, channelID := buildRelayErrorLogOther(c, err, nil)
 
-	require.NotNil(t, other)
+	require.NotNil(t, logOther)
+	other := logOther.Snapshot()
+	adminInfo, ok := other["admin_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 0, channelID)
 	assert.Equal(t, true, other["route_failure"])
 	assert.Equal(t, false, other["attempted_channel"])
-	assert.Equal(t, 0, other["channel_id"])
-	assert.Equal(t, "", other["channel_name"])
-	assert.Equal(t, 0, other["channel_type"])
+	assert.NotContains(t, other, "channel_id")
+	assert.Equal(t, 0, adminInfo["channel_id"])
+	assert.Equal(t, "", adminInfo["channel_name"])
+	assert.Equal(t, 0, adminInfo["channel_type"])
 }
 
 func TestBuildRelayErrorLogOtherPreservesAttemptedChannel(t *testing.T) {
@@ -39,12 +44,16 @@ func TestBuildRelayErrorLogOtherPreservesAttemptedChannel(t *testing.T) {
 	c.Set("channel_type", 1)
 	err := types.NewErrorWithStatusCode(errors.New("upstream unavailable"), types.ErrorCodeBadResponseStatusCode, http.StatusServiceUnavailable)
 
-	other := buildRelayErrorLogOther(c, err)
+	logOther, channelID := buildRelayErrorLogOther(c, err, nil)
 
-	require.NotNil(t, other)
+	require.NotNil(t, logOther)
+	other := logOther.Snapshot()
+	adminInfo, ok := other["admin_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 37, channelID)
 	assert.Equal(t, true, other["attempted_channel"])
 	assert.NotContains(t, other, "route_failure")
-	assert.Equal(t, 37, other["channel_id"])
-	assert.Equal(t, "attempted-channel", other["channel_name"])
-	assert.Equal(t, 1, other["channel_type"])
+	assert.Equal(t, 37, adminInfo["channel_id"])
+	assert.Equal(t, "attempted-channel", adminInfo["channel_name"])
+	assert.Equal(t, 1, adminInfo["channel_type"])
 }

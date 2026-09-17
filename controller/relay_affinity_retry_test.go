@@ -6,8 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,7 +102,12 @@ func TestShouldRetryStopsAfterEscapedResponseIsWritten(t *testing.T) {
 
 func TestShouldRetrySpecificChannelNeverEscapesOrRetries(t *testing.T) {
 	ctx := buildAffinityRetryContext(t, 3)
-	ctx.Set("specific_channel_id", 337)
+	service.GetChannelConstraints(ctx).AddPin(dto.ChannelPin{
+		ChannelId: 337,
+		Source:    dto.PinSourceToken,
+		Rank:      dto.PinRankToken,
+		RetryMode: dto.PinRetrySingleAttempt,
+	})
 
 	assert.False(t, shouldRetry(ctx, relayStatusError(http.StatusServiceUnavailable), 4))
 	assert.False(t, service.HasEscapedChannelAffinityFailure(ctx))

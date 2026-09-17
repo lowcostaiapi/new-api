@@ -6,7 +6,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/types"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,10 +15,20 @@ import (
 // RecordRelayErrorLog records a relay failure with a stable error code so
 // operators can distinguish local routing failures from upstream responses.
 func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
+	recordRelayErrorLog(c, err, nil, 0)
+}
+
+// recordRelayErrorLog writes the error log. attemptedChannelID, when non-zero,
+// is the channel captured by the caller and wins over the gin context, which
+// may already describe another channel when processed asynchronously.
+func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo, attemptedChannelID int) {
 	if c == nil || err == nil || !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
 		return
 	}
-	other := buildRelayErrorLogOther(c, err)
+	other, channelID := buildRelayErrorLogOther(c, err, relayInfo)
+	if attemptedChannelID != 0 {
+		channelID = attemptedChannelID
+	}
 
 	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 	if startTime.IsZero() {
@@ -26,7 +37,7 @@ func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 	model.RecordErrorLog(
 		c,
 		c.GetInt("id"),
-		other["channel_id"].(int),
+		channelID,
 		c.GetString("original_model"),
 		c.GetString("token_name"),
 		err.MaskSensitiveErrorWithStatusCode(),
@@ -38,7 +49,10 @@ func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 	)
 }
 
-func buildRelayErrorLogOther(c *gin.Context, err *types.NewAPIError) map[string]interface{} {
+// buildRelayErrorLogOther returns the log metadata and the channel id the log
+// row should be attributed to. Channel identity is privileged metadata, so it
+// lives in the admin scope rather than the user-visible top level.
+func buildRelayErrorLogOther(c *gin.Context, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) (*model.LogOther, int) {
 	usedChannels := c.GetStringSlice("use_channel")
 	attemptedChannel := len(usedChannels) > 0
 	channelID := c.GetInt("channel_id")
@@ -49,29 +63,21 @@ func buildRelayErrorLogOther(c *gin.Context, err *types.NewAPIError) map[string]
 		channelName = ""
 		channelType = 0
 	}
-	other := map[string]interface{}{
-		"error_type":        err.GetErrorType(),
-		"error_code":        err.GetErrorCode(),
-		"status_code":       err.StatusCode,
-		"attempted_channel": attemptedChannel,
-		"channel_id":        channelID,
-		"channel_name":      channelName,
-		"channel_type":      channelType,
-	}
+	other := model.NewLogOther()
+	other.SetPublic("error_type", err.GetErrorType())
+	other.SetPublic("error_code", err.GetErrorCode())
+	other.SetPublic("status_code", err.StatusCode)
+	other.SetPublic("attempted_channel", attemptedChannel)
 	if err.GetErrorCode() == types.ErrorCodeGetChannelFailed {
-		other["route_failure"] = true
+		other.SetPublic("route_failure", true)
 	}
 	if c.Request != nil && c.Request.URL != nil {
-		other["request_path"] = c.Request.URL.Path
+		other.SetPublic("request_path", c.Request.URL.Path)
 	}
-	adminInfo := map[string]interface{}{
-		"use_channel": usedChannels,
-	}
-	if common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey) {
-		adminInfo["is_multi_key"] = true
-		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
-	}
-	AppendChannelAffinityAdminInfo(c, adminInfo)
-	other["admin_info"] = adminInfo
-	return other
+	other.SetAdmin("channel_id", channelID)
+	other.SetAdmin("channel_name", channelName)
+	other.SetAdmin("channel_type", channelType)
+	AppendRelayLogAdminInfo(c, relayInfo, other)
+	AppendTaskPluginContextAuditInfo(c, other)
+	return other, channelID
 }

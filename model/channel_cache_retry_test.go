@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ func TestGetRandomSatisfiedChannelNeverReusesExcludedAffinityChannels(t *testing
 		354: {Id: 354, Priority: &priorityHigh, Weight: &weight},
 		384: {Id: 384, Priority: &priorityLow, Weight: &weight},
 	}
-	channel2advancedCustomConfig = map[int]*dto.AdvancedCustomConfig{}
+	channel2advancedCustomConfig = map[int]*kitdto.AdvancedCustomConfig{}
 	channelSyncLock.Unlock()
 	common.MemoryCacheEnabled = true
 
@@ -40,33 +41,35 @@ func TestGetRandomSatisfiedChannelNeverReusesExcludedAffinityChannels(t *testing
 		channelSyncLock.Unlock()
 	})
 
-	channel, err := GetRandomSatisfiedChannel(
+	responsesPathFilters := []dto.ChannelFilter{{Kind: dto.FilterRequestPath, RequestPath: "/v1/responses"}}
+
+	channel, err := GetRandomSatisfiedChannelExcluding(
 		"codex-team",
 		"gpt-test",
 		1,
-		"/v1/responses",
+		responsesPathFilters,
 		map[int]struct{}{337: {}},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 	assert.Equal(t, 354, channel.Id)
 
-	channel, err = GetRandomSatisfiedChannel(
+	channel, err = GetRandomSatisfiedChannelExcluding(
 		"codex-team",
 		"gpt-test",
 		2,
-		"/v1/responses",
+		responsesPathFilters,
 		map[int]struct{}{337: {}, 354: {}},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 	assert.Equal(t, 384, channel.Id)
 
-	channel, err = GetRandomSatisfiedChannel(
+	channel, err = GetRandomSatisfiedChannelExcluding(
 		"codex-team",
 		"gpt-test",
 		3,
-		"/v1/responses",
+		responsesPathFilters,
 		map[int]struct{}{337: {}, 354: {}, 384: {}},
 	)
 	require.NoError(t, err)

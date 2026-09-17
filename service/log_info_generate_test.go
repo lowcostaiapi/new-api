@@ -23,7 +23,7 @@ func TestGenerateTextOtherInfoIncludesUpstreamHeaderTime(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 
-	other := GenerateTextOtherInfo(c, relayInfo, 1, 1, 1, 0, 0, 0, 1)
+	other := GenerateTextOtherInfo(c, relayInfo, 1, 1, 1, 0, 0, 0, 1).Snapshot()
 
 	assert.Equal(t, float64(250), other["uhrt"])
 	assert.Equal(t, float64(3000), other["frt"])
@@ -45,7 +45,7 @@ func TestGenerateTextOtherInfoIncludesRetryErrorsInAdminInfo(t *testing.T) {
 	}}
 	c.Set("retry_errors", retryErrors)
 
-	other := GenerateTextOtherInfo(c, relayInfo, 1, 1, 1, 0, 0, 0, 1)
+	other := GenerateTextOtherInfo(c, relayInfo, 1, 1, 1, 0, 0, 0, 1).Snapshot()
 
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
 	require.True(t, ok)
